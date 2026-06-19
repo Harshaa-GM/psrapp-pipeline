@@ -61,14 +61,11 @@ def get_all_versions():
         SELECT r.pr_number, r.release_name, r.created_at, a.app_name
         FROM releases r
         LEFT JOIN apps a ON a.release_id = r.id
+        WHERE r.branch_type = 'head'
         ORDER BY r.pr_number DESC
     """).fetchall()
     db.close()
-    seen = {}
-    for r in rows:
-        if r["pr_number"] not in seen:
-            seen[r["pr_number"]] = dict(r)
-    return list(seen.values())
+    return [dict(r) for r in rows]
 
 
 def get_diff_data(pr_number):

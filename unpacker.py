@@ -63,31 +63,6 @@ def _unpack(msapp_bytes: bytes) -> dict[str, Any]:
 
 def unpack_from_solution_zip(zip_path: str) -> dict[str, Any]:
     """
-    Handle a Dynamics 365 solution ZIP (like APCMSGnosCheckIn_26_6_9_3_managed.zip).
-    Finds the .msapp inside CanvasApps/ and unpacks it.
-    Returns (msapp_filename, contents_dict)
-    """
-    import zipfile as zf
-
-    with zf.ZipFile(zip_path, 'r') as outer:
-        # Find .msapp files inside CanvasApps/
-        msapp_entries = [
-            e for e in outer.namelist()
-            if e.startswith("CanvasApps/") and e.endswith(".msapp")
-        ]
-        if not msapp_entries:
-            raise FileNotFoundError("No .msapp found inside CanvasApps/ in the solution zip")
-
-        # Take the first one (usually only one)
-        msapp_entry = msapp_entries[0]
-        msapp_bytes  = outer.read(msapp_entry)
-        logger.info("Found .msapp in solution zip: %s (%d bytes)", msapp_entry, len(msapp_bytes))
-
-    return os.path.basename(msapp_entry), _unpack(msapp_bytes)
-
-
-def unpack_from_solution_zip(zip_path: str) -> dict[str, Any]:
-    """
     Handle a Dynamics 365 / Power Platform solution zip.
     Finds the .msapp inside CanvasApps/ and unpacks it.
     Works with both local files and bytes.
@@ -109,3 +84,4 @@ def unpack_from_solution_zip(zip_path: str) -> dict[str, Any]:
         msapp_bytes = outer.read(msapp_entry)
 
     return _unpack(msapp_bytes)
+
