@@ -1,0 +1,118 @@
+name: Deploy Artifact Ingestion Function
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Triggers:
+#   • Push to `main` branch (under the artifact-ingestion path)
+#   • Manual dispatch (workflow_dispatch) for ad-hoc deployments
+# ──────────────────────────────────────────────────────────────────────────────
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "azure-functions/artifact-ingestion/**"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment (dev / staging / prod)"
+        required: true
+        default: "dev"
+        type: choice
+        options: [dev, staging, prod]
+
+env:
+  PYTHON_VERSION: "3.11"
+  FUNCTION_APP_NAME: ${{ vars.FUNCTION_APP_NAME }}       # set in repo Variables
+  AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }} # set in repo Variables
+
+jobs:
+  # ── 1. Lint & unit tests ─────────────────────────────────────────────────
+  test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: azure-functions/artifact-ingestion
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest pytest-asyncio
+
+      - name: Lint with flake8
+        run: |
+          pip install flake8
+          flake8 . --max-line-length=100 --exclude=.venv
+
+      - name: Run unit tests
+        run: pytest tests/ -v --tb=short
+
+  # ── 2. Deploy to Azure Functions ─────────────────────────────────────────
+  deploy:
+    name: Deploy to Azure
+    needs: test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: azure-functions/artifact-ingestion
+
+    # Use OpenID Connect (OIDC) — no client secret stored in GitHub.
+    # Configure federated credential on the Service Principal in Entra ID.
+    permissions:
+      id-token: write   # Required for OIDC
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      # ── Authenticate to Azure via Service Principal (OIDC) ────────────────
+      - name: Azure Login (OIDC / Service Principal)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # ── Deploy Function App ───────────────────────────────────────────────
+      - name: Deploy Azure Function App
+        uses: azure/functions-action@v1
+        with:
+          app-name: ${{ env.FUNCTION_APP_NAME }}
+          package: azure-functions/artifact-ingestion
+          scm-do-build-during-deployment: true
+
+      # ── Apply App Settings (non-secret config) ────────────────────────────
+      #    Secrets (AZURE_CLIENT_SECRET, GITHUB_TOKEN, etc.) must NEVER be
+      #    set here. They are read from Key Vault at runtime via Key Vault
+      #    references in the Function App Application Settings:
+      #    @Microsoft.KeyVault(VaultName=<vault>;SecretName=<name>)
+      - name: Configure Function App settings
+        uses: azure/CLI@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            az functionapp config appsettings set \
+              --name "${{ env.FUNCTION_APP_NAME }}" \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+              --settings \
+                BLOB_CONTAINER_NAME="powerapps-artifacts" \
+                FUNCTIONS_WORKER_RUNTIME="python" \
+                PYTHON_ENABLE_WORKER_EXTENSIONS="1"
+
+      # ── Logout ────────────────────────────────────────────────────────────
+      - name: Azure Logout
+        if: always()
+        run: az logout

@@ -1,0 +1,10 @@
+.azurite
+__pycache__
+.venv
+venv
+tests
+.env
+powerapp.db
+local.settings.json
+outputs/
+uploads/

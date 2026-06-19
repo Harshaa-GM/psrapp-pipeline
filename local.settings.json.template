@@ -1,0 +1,43 @@
+# =============================================================================
+# local.settings.json is NEVER committed to source control.
+# This file is for LOCAL DEVELOPMENT ONLY.
+# All production secrets are stored in Azure Key Vault.
+# =============================================================================
+#
+# Copy this template to local.settings.json and fill in the values:
+#   cp local.settings.json.template local.settings.json
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# {
+#   "IsEncrypted": false,
+#   "Values": {
+#
+#     "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+#
+#     // ── Service Principal (used by auth.py when all three are set) ────────
+#     "AZURE_TENANT_ID":     "<your-tenant-id>",
+#     "AZURE_CLIENT_ID":     "<your-sp-client-id>",
+#     "AZURE_CLIENT_SECRET": "<your-sp-client-secret>",
+#
+#     // ── Azure resources ───────────────────────────────────────────────────
+#     "AZURE_KEY_VAULT_URL":        "https://<vault-name>.vault.azure.net/",
+#     "AZURE_STORAGE_ACCOUNT_URL":  "https://<account>.blob.core.windows.net",
+#     "BLOB_CONTAINER_NAME":        "powerapps-artifacts",
+#
+#     // ── GitHub repository targeting ───────────────────────────────────────
+#     // These three control which repo and directory the function scans.
+#     // They can be overridden per-request in the JSON body.
+#     "GITHUB_OWNER":     "AxleNet",
+#     "GITHUB_REPO":      "APCMS",
+#     "CANVAS_APPS_PATH": "APCMS_PSRIntegration/CanvasApps",
+#
+#     // ── GitHub (for local dev only — prod uses Key Vault secret) ──────────
+#     "GITHUB_TOKEN": "<github-app-installation-token-or-pat>",
+#
+#     // ── Application Insights ─────────────────────────────────────────────
+#     "APPLICATIONINSIGHTS_CONNECTION_STRING": "<connection-string>",
+#
+#     "FUNCTIONS_WORKER_RUNTIME": "python"
+#   }
+# }
+# ─────────────────────────────────────────────────────────────────────────────
