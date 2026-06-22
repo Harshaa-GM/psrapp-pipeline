@@ -87,6 +87,66 @@ def get_diff_data(pr_number):
     }
 
 
+def get_compare_data(base_ver: int, head_ver: int) -> dict:
+    """Live in-memory diff between any two uploaded versions.
+    Reads from the head releases of each version — no DB writes."""
+    db = get_db()
+
+    def _head_app(ver):
+        rel = db.execute(
+            "SELECT id FROM releases WHERE pr_number=? AND branch_type='head' "
+            "ORDER BY created_at DESC LIMIT 1", (ver,)
+        ).fetchone()
+        if not rel:
+            return None
+        return db.execute("SELECT * FROM apps WHERE release_id=? LIMIT 1", (rel["id"],)).fetchone()
+
+    base_app = _head_app(base_ver)
+    head_app = _head_app(head_ver)
+
+    base_controls = db.execute(
+        "SELECT * FROM controls WHERE app_id=? ORDER BY screen_name, control_name",
+        (base_app["id"],)
+    ).fetchall() if base_app else []
+    head_controls = db.execute(
+        "SELECT * FROM controls WHERE app_id=? ORDER BY screen_name, control_name",
+        (head_app["id"],)
+    ).fetchall() if head_app else []
+
+    diffs = []
+    if base_app and head_app:
+        base_ctrls = {r["control_name"]: dict(r) for r in base_controls}
+        head_ctrls = {r["control_name"]: dict(r) for r in head_controls}
+
+        for name in set(head_ctrls) - set(base_ctrls):
+            diffs.append({"diff_type": "control_added",   "entity_name": name,
+                          "field_name": "control_type",   "base_value": None,
+                          "head_value": head_ctrls[name].get("control_type")})
+        for name in set(base_ctrls) - set(head_ctrls):
+            diffs.append({"diff_type": "control_removed", "entity_name": name,
+                          "field_name": "control_type",   "base_value": base_ctrls[name].get("control_type"),
+                          "head_value": None})
+        for name in set(base_ctrls) & set(head_ctrls):
+            b, h = base_ctrls[name], head_ctrls[name]
+            for field in ("control_type", "x", "y", "width", "height",
+                          "visible", "text_value", "on_select"):
+                bv = str(b.get(field) or "")
+                hv = str(h.get(field) or "")
+                if bv != hv:
+                    diffs.append({"diff_type": "control_changed", "entity_name": name,
+                                  "field_name": field, "base_value": bv, "head_value": hv})
+
+    diffs.sort(key=lambda d: (d["diff_type"], d["entity_name"]))
+    db.close()
+    return {
+        "base_app":      dict(base_app) if base_app else {},
+        "head_app":      dict(head_app) if head_app else {},
+        "diffs":         diffs,
+        "base_controls": [dict(c) for c in base_controls],
+        "head_controls": [dict(c) for c in head_controls],
+    }
+
+
 def get_flows_data(pr_number):
     db = get_db()
     base_rel = db.execute("SELECT id FROM releases WHERE pr_number=? AND branch_type='base' ORDER BY created_at DESC LIMIT 1", (pr_number,)).fetchone()
@@ -523,11 +583,16 @@ HTML = """<!DOCTYPE html>
 <div class="panel" id="panel-diff">
   <div class="diff-panel">
     <div class="diff-toolbar">
-      <label>Version</label>
-      <select class="pr-sel" id="pr-select-diff">
-        <option value="">-- Choose a version --</option>
+      <label style="margin-right:4px">Base</label>
+      <select class="pr-sel" id="pr-select-base">
+        <option value="">-- Base version --</option>
       </select>
-      <button class="load-btn" onclick="loadDiff()">Load Diff</button>
+      <span style="color:#444;font-size:16px;margin:0 6px">→</span>
+      <label style="margin-right:4px">Head</label>
+      <select class="pr-sel" id="pr-select-head">
+        <option value="">-- Head version --</option>
+      </select>
+      <button class="load-btn" onclick="loadDiff()">Compare</button>
       <span id="diff-subtitle" style="font-size:11px;color:#555;margin-left:8px"></span>
     </div>
     <div class="diff-content" id="diff-content">
@@ -671,10 +736,11 @@ async function submitUpload() {
     loadVersionLists();
 
     // Auto-jump to diff viewer if diffs found
-    if (data.diff_count > 0) {
+    if (data.diff_count > 0 && data.prev_version) {
       setTimeout(() => {
         switchTab('diff');
-        document.getElementById('pr-select-diff').value = data.version;
+        document.getElementById('pr-select-base').value = data.prev_version;
+        document.getElementById('pr-select-head').value = data.version;
         loadDiff();
       }, 1200);
     }
@@ -698,19 +764,27 @@ async function loadVersionLists() {
   const data = await res.json();
   const versions = data.versions;
 
-  // Dropdowns
-  ['pr-select-diff','pr-select-flows'].forEach(id => {
+  function populateSel(id, curVal) {
     const sel = document.getElementById(id);
-    const cur = sel.value;
-    sel.innerHTML = '<option value="">-- Choose a version --</option>';
+    if (!sel) return;
+    const placeholder = id === 'pr-select-flows' ? '-- Choose a version --' :
+                        id === 'pr-select-base'  ? '-- Base version --' : '-- Head version --';
+    sel.innerHTML = `<option value="">${placeholder}</option>`;
     versions.forEach(v => {
       const o = document.createElement('option');
       o.value = v.pr_number;
       o.innerText = `v${v.pr_number}${v.release_name !== 'v'+v.pr_number ? ' — '+v.release_name : ''}`;
-      if (String(v.pr_number)===cur) o.selected = true;
+      if (String(v.pr_number) === String(curVal)) o.selected = true;
       sel.appendChild(o);
     });
-  });
+  }
+
+  const curBase  = document.getElementById('pr-select-base')?.value;
+  const curHead  = document.getElementById('pr-select-head')?.value;
+  const curFlows = document.getElementById('pr-select-flows')?.value;
+  populateSel('pr-select-base',  curBase);
+  populateSel('pr-select-head',  curHead);
+  populateSel('pr-select-flows', curFlows);
 
   // Version history list on Upload tab
   const list = document.getElementById('version-list');
@@ -719,22 +793,41 @@ async function loadVersionLists() {
     return;
   }
   list.innerHTML = versions.map((v,i) => `
-    <div class="ver-row" onclick="switchTab('diff');document.getElementById('pr-select-diff').value=${v.pr_number};loadDiff()">
+    <div class="ver-row" onclick="jumpToDiff(${i}, ${v.pr_number}, versions)">
       <span class="ver-badge ${i===0?'latest':''}">v${v.pr_number}</span>
       <span class="ver-name">${v.app_name||v.release_name||'—'}</span>
       <span class="ver-date">${v.created_at ? v.created_at.split('T')[0] : ''}</span>
     </div>`).join('');
 }
 
+function jumpToDiff(i, pr, versions) {
+  switchTab('diff');
+  // Set head = this version, base = previous version (if exists)
+  document.getElementById('pr-select-head').value = pr;
+  const prevPr = versions[i+1] ? versions[i+1].pr_number : '';
+  document.getElementById('pr-select-base').value = prevPr;
+  if (prevPr) loadDiff();
+}
+
 // ── Diff viewer ───────────────────────────────────────────────────────────────
 async function loadDiff() {
-  const pr = document.getElementById('pr-select-diff').value;
-  if (!pr) return;
-  document.getElementById('diff-content').innerHTML = '<div class="empty-diff"><p style="color:#555">Loading...</p></div>';
-  const data = await fetch('/diff/'+pr).then(r=>r.json());
-  document.getElementById('diff-subtitle').innerText =
-    data.base_app?.app_name ? `v${pr} vs previous` : '';
-  renderDiff(pr, data);
+  const base = document.getElementById('pr-select-base').value;
+  const head = document.getElementById('pr-select-head').value;
+  if (!base || !head) {
+    document.getElementById('diff-content').innerHTML =
+      '<div class="empty-diff"><p>Select both a Base and Head version to compare.</p></div>';
+    return;
+  }
+  if (base === head) {
+    document.getElementById('diff-content').innerHTML =
+      '<div class="empty-diff"><p>Base and Head must be different versions.</p></div>';
+    return;
+  }
+  document.getElementById('diff-content').innerHTML =
+    '<div class="empty-diff"><p style="color:#555">Loading...</p></div>';
+  const data = await fetch(`/diff/compare?base=${base}&head=${head}`).then(r=>r.json());
+  document.getElementById('diff-subtitle').innerText = `v${base} → v${head}`;
+  renderDiff(head, data);
 }
 
 function renderDiff(pr, data) {
@@ -910,6 +1003,16 @@ def upload():
 def diff(pr_number):
     return jsonify(get_diff_data(pr_number))
 
+@app.route("/diff/compare")
+def diff_compare():
+    base = request.args.get("base", type=int)
+    head = request.args.get("head", type=int)
+    if not base or not head:
+        return jsonify({"error": "base and head version numbers are required"}), 400
+    if base == head:
+        return jsonify({"error": "base and head must be different versions"}), 400
+    return jsonify(get_compare_data(base, head))
+
 @app.route("/flows/<int:pr_number>")
 def flows(pr_number):
     return jsonify(get_flows_data(pr_number))
@@ -930,7 +1033,6 @@ def ingest_blob():
     data       = request.get_json(force=True)
     blob_name  = data.get("blob_name", "").strip()
     container  = data.get("container") or os.getenv("AZURE_BLOB_CONTAINER", "powerapps-artifacts")
-    print("CONN STR:", repr(os.getenv("AZURE_BLOB_CONNECTION_STRING", "")))
     print("BLOB NAME:", blob_name)
     print("CONTAINER:", container)
     
