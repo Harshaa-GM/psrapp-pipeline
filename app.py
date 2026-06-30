@@ -1062,8 +1062,8 @@ def ingest_blob():
     
 
 if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5050))
+    debug_mode = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
     print("\n🚀 PSR PowerApp Review UI")
-    print("   Open: http://localhost:5050\n")
-    app.run(debug=True, port=5050)
-
-  
+    print(f"   Open: http://localhost:{port}\n")
+    app.run(debug=debug_mode, host="0.0.0.0", port=port)
