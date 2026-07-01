@@ -1107,14 +1107,13 @@ def ingest_blob():
 
 
 @app.route("/login")
+@app.route("/login")
 def login():
     session["state"] = str(uuid.uuid4())
-    print("Stored state:", session["state"])
-    
     auth_url = _build_msal_app().get_authorization_request_url(
         AZURE_SCOPE,
         state=session["state"],
-        redirect_uri="https://127.0.0.1:5050/auth/callback",
+        redirect_uri=os.getenv("REDIRECT_URI"),  # ← change to this
     )
     return redirect(auth_url)
 
@@ -1131,7 +1130,7 @@ def auth_callback():
     result = _build_msal_app().acquire_token_by_authorization_code(
         code,
         scopes=AZURE_SCOPE,
-        redirect_uri="https://127.0.0.1:5050/auth/callback",
+        redirect_uri=os.getenv("REDIRECT_URI"),
     )
     if "error" in result:
         return f"Token error: {result.get('error_description')}", 400
