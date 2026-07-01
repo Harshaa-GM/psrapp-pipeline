@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
 print("RUNNING FILE:", os.path.abspath(__file__))
 
 BLOB_CONN_STR  = os.getenv("AZURE_BLOB_CONNECTION_STRING", "")
@@ -24,9 +25,44 @@ from unpacker import _unpack
 from parser   import parse_and_store, parse_flow_and_store
 from compare  import compare_pr
 
+
+  
 app = Flask(__name__)
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+import msal
+import uuid
+from functools import wraps
+from flask import session, redirect, url_for
+
+app.secret_key = os.getenv("FLASK_SECRET_KEY", os.urandom(24).hex())
+
+AZURE_CLIENT_ID     = os.getenv("AZURE_CLIENT_ID", "")
+AZURE_CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET", "")
+AZURE_TENANT_ID     = os.getenv("AZURE_TENANT_ID", "")
+AZURE_AUTHORITY     = f"https://login.microsoftonline.com/{AZURE_TENANT_ID}"
+AZURE_REDIRECT_PATH = "/auth/callback"
+AZURE_SCOPE         = ["User.Read"]
+
+print("Tenant:", AZURE_TENANT_ID)
+print("Client:", AZURE_CLIENT_ID)
+print("Authority:", AZURE_AUTHORITY)
+
+def _build_msal_app():
+    return msal.ConfidentialClientApplication(
+        AZURE_CLIENT_ID,
+        authority=AZURE_AUTHORITY,
+        client_credential=AZURE_CLIENT_SECRET,
+    )
+
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get("user"):
+            return redirect(url_for("login"))
+        return f(*args, **kwargs)
+    return decorated
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1060,6 +1096,52 @@ def ingest_blob():
     except Exception as e:
         return jsonify({"error": f"Processing failed: {str(e)}"}), 500
     
+
+
+
+@app.route("/login")
+def login():
+    session["state"] = str(uuid.uuid4())
+    print("Stored state:", session["state"])
+    
+    auth_url = _build_msal_app().get_authorization_request_url(
+        AZURE_SCOPE,
+        state=session["state"],
+        redirect_uri="https://127.0.0.1:5050/auth/callback",
+    )
+    return redirect(auth_url)
+
+@app.route("/auth/callback")
+def auth_callback():
+    print("Returned state:", request.args.get("state"))
+    print("Session state :", session.get("state"))
+    if request.args.get("state") != session.get("state"):
+        return "State mismatch, possible CSRF. Try logging in again.", 400
+    if "error" in request.args:
+        return f"Login failed: {request.args.get('error_description')}", 400
+
+    code = request.args.get("code")
+    result = _build_msal_app().acquire_token_by_authorization_code(
+        code,
+        scopes=AZURE_SCOPE,
+        redirect_uri="https://127.0.0.1:5050/auth/callback",
+    )
+    if "error" in result:
+        return f"Token error: {result.get('error_description')}", 400
+
+    session["user"] = result.get("id_token_claims")
+    return redirect(url_for("home"))
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(
+        f"{AZURE_AUTHORITY}/oauth2/v2.0/logout?post_logout_redirect_uri={url_for('home', _external=True)}"
+    )
+
+    print("CLIENT_ID loaded:", bool(AZURE_CLIENT_ID))
+    print("TENANT_ID loaded:", bool(AZURE_TENANT_ID)) 
+    print("SECRET loaded:", bool(AZURE_CLIENT_SECRET))
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5050))
