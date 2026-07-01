@@ -1016,6 +1016,7 @@ def home():
     return render_template_string(HTML)
 
 @app.route("/versions")
+@login_required
 def versions():
     return jsonify({"versions": get_all_versions()})
 
@@ -1028,6 +1029,7 @@ def prs():
     return jsonify({"prs": [r["pr_number"] for r in rows]})
 
 @app.route("/upload", methods=["POST"])
+@login_required
 def upload():
     files = request.files.getlist("files")
     label = request.form.get("label", "").strip() or None
@@ -1037,10 +1039,12 @@ def upload():
     return jsonify(results)
 
 @app.route("/diff/<int:pr_number>")
+@login_required
 def diff(pr_number):
     return jsonify(get_diff_data(pr_number))
 
 @app.route("/diff/compare")
+@login_required
 def diff_compare():
     base = request.args.get("base", type=int)
     head = request.args.get("head", type=int)
@@ -1051,10 +1055,12 @@ def diff_compare():
     return jsonify(get_compare_data(base, head))
 
 @app.route("/flows/<int:pr_number>")
+@login_required
 def flows(pr_number):
     return jsonify(get_flows_data(pr_number))
 
 @app.route("/ask", methods=["POST"])
+@login_required
 def ask():
     data     = request.get_json(force=True)
     question = data.get("question", "").strip()
