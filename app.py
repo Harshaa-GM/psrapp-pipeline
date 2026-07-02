@@ -4,6 +4,10 @@ Tabs: Upload | Diff Viewer | Flows | AI Chat
 Arun's requirement: upload ONE file → auto version → auto diff vs previous
 """
 
+from fileinput import filename
+from fileinput import filename
+from importlib.metadata import files
+
 from azure.storage.blob import BlobServiceClient
 import os, re, io, json, zipfile, urllib.request, urllib.error
 from flask import Flask, request, jsonify, render_template_string
@@ -163,15 +167,14 @@ def get_compare_data(base_ver: int, head_ver: int) -> dict:
                           "field_name": "control_type",   "base_value": base_ctrls[name].get("control_type"),
                           "head_value": None})
         for name in set(base_ctrls) & set(head_ctrls):
-            b, h = base_ctrls[name], head_ctrls[name]
-            for field in ("control_type", "x", "y", "width", "height",
-                          "visible", "text_value", "on_select"):
-                bv = str(b.get(field) or "")
-                hv = str(h.get(field) or "")
-                if bv != hv:
-                    diffs.append({"diff_type": "control_changed", "entity_name": name,
-                                  "field_name": field, "base_value": bv, "head_value": hv})
-
+          b, h = base_ctrls[name], head_ctrls[name]
+          for field in ("control_type", "visible", "text_value", "on_select"):
+            bv = "" if b.get(field) is None else str(b.get(field))
+            hv = "" if h.get(field) is None else str(h.get(field))
+            if bv != hv:
+              diffs.append({"diff_type": "control_changed", "entity_name": name,
+                          "field_name": field, "base_value": bv, "head_value": hv})
+            
     diffs.sort(key=lambda d: (d["diff_type"], d["entity_name"]))
     db.close()
     return {
@@ -325,9 +328,12 @@ def process_upload(files, label=None):
     results     = {"msapp": None, "flows": [], "errors": [], "version": new_version}
 
     # Store new upload as HEAD
-    release_id = _create_release(db, new_version, "head", label or f"v{new_version}")
+    # Use uploaded filename as label if no label provided
+    if not label and files:
+      label = files[0].filename.replace(".zip", "").replace(".msapp", "")
+      release_id = _create_release(db, new_version, "head", label or f"v{new_version}")
 
-    for file in files:
+      for file in files:
         filename = file.filename
         data     = file.read()
         try:
@@ -358,7 +364,6 @@ def process_upload(files, label=None):
         except Exception as e:
             results["errors"].append(f"{filename}: {str(e)}")
 
-    # If there's a previous version, copy it as BASE for this version's diff
     diff_count   = 0
     prev_version = versions[0] if versions else None
 
@@ -570,6 +575,7 @@ HTML = """<!DOCTYPE html>
 
 <div class="tabs">
   <div class="tab active" onclick="switchTab('upload')">📤 Upload</div>
+  <div class="tab" onclick="switchTab('history')">📋 Solution History</div>
   <div class="tab" onclick="switchTab('diff')">🔀 Diff Viewer</div>
   <div class="tab" onclick="switchTab('flows')">⚡ Flows</div>
   <div class="tab" onclick="switchTab('chat')">💬 AI Chat</div>
@@ -601,17 +607,22 @@ HTML = """<!DOCTYPE html>
       <div class="file-list" id="file-list"></div>
 
       <button class="upload-btn" id="upload-btn" onclick="submitUpload()" disabled>
-        ⚡ Upload &amp; Auto-Diff
+        ⚡ Upload
       </button>
 
       <div class="result-box" id="result-box"></div>
     </div>
+  </div>
+</div>
 
-    <div class="version-history">
-      <h3>Version History</h3>
-      <div id="version-list"><p style="color:#444;font-size:12px">No versions uploaded yet.</p></div>
+<!-- ══ SOLUTION HISTORY ══════════════════════════════════════════════════════ -->
+<div class="panel" id="panel-history">
+  <div class="upload-area">
+    <div class="upload-card">
+      <h2>Solution History</h2>
+      <p>All uploaded solutions with version numbers, file names and upload dates.</p>
+      <div id="history-list"><p style="color:#444;font-size:12px">No solutions uploaded yet.</p></div>
     </div>
-
   </div>
 </div>
 
@@ -689,11 +700,12 @@ HTML = """<!DOCTYPE html>
 <script>
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 function switchTab(name) {
-  ['upload','diff','flows','chat'].forEach((n,i) => {
+  ['upload','history','diff','flows','chat'].forEach((n,i) => {
     document.querySelectorAll('.tab')[i].classList.toggle('active', n===name);
   });
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   document.getElementById('panel-'+name).classList.add('active');
+  if (name === 'history') loadHistory();
 }
 
 // ── Upload ────────────────────────────────────────────────────────────────────
@@ -771,6 +783,24 @@ async function submitUpload() {
     renderFileList();
     loadVersionLists();
 
+    async function loadHistory() {
+  const res = await fetch('/versions');
+  const data = await res.json();
+  const versions = data.versions;
+  const list = document.getElementById('history-list');
+  if (!versions.length) {
+    list.innerHTML = '<p style="color:#444;font-size:12px">No solutions uploaded yet.</p>';
+    return;
+  }
+  list.innerHTML = versions.map((v, i) => `
+    <div class="ver-row" onclick="switchTab('diff');document.getElementById('pr-select-head').value=${v.pr_number};loadDiff()">
+      <span class="ver-badge ${i===0?'latest':''}">v${v.pr_number}</span>
+      <span class="ver-name">${v.release_name || v.app_name || '—'}</span>
+      <span class="ver-date">${v.created_at ? v.created_at.split('T')[0] : ''}</span>
+      <span style="font-size:11px;color:#555;margin-left:auto">Click to diff →</span>
+    </div>`).join('');
+}
+
     // Auto-jump to diff viewer if diffs found
     if (data.diff_count > 0 && data.prev_version) {
       setTimeout(() => {
@@ -785,7 +815,7 @@ async function submitUpload() {
   }
 
   btn.disabled  = false;
-  btn.innerText = '⚡ Upload & Auto-Diff';
+  btn.innerText = '⚡ Upload';
 }
 
 function showResult(html) {
@@ -1107,7 +1137,6 @@ def ingest_blob():
 
 
 @app.route("/login")
-@app.route("/login")
 def login():
     session["state"] = str(uuid.uuid4())
     auth_url = _build_msal_app().get_authorization_request_url(
@@ -1145,9 +1174,6 @@ def logout():
         f"{AZURE_AUTHORITY}/oauth2/v2.0/logout?post_logout_redirect_uri={url_for('home', _external=True)}"
     )
 
-    print("CLIENT_ID loaded:", bool(AZURE_CLIENT_ID))
-    print("TENANT_ID loaded:", bool(AZURE_TENANT_ID)) 
-    print("SECRET loaded:", bool(AZURE_CLIENT_SECRET))
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5050))

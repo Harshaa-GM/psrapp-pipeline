@@ -57,10 +57,9 @@ def compare_pr(db: sqlite3.Connection, pr_number: int) -> int:
 
     for name in set(base_ctrls) & set(head_ctrls):
         b, h = base_ctrls[name], head_ctrls[name]
-        for field in ("control_type", "x", "y", "width", "height",
-                      "visible", "text_value", "on_select"):
-            bv = str(b.get(field) or "")
-            hv = str(h.get(field) or "")
+        for field in ("control_type", "visible", "text_value", "on_select"):
+            bv = "" if b.get(field) is None else str(b.get(field))
+            hv = "" if h.get(field) is None else str(h.get(field))
             if bv != hv:
                 diffs.append(("control_changed", name, field, bv, hv))
 
