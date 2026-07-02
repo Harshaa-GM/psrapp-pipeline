@@ -290,9 +290,15 @@ def ask_grok(question, context):
         "model": "grok-2-latest",
         "messages": [
             {"role": "system", "content": (
-                "You are a PowerApps code review assistant. "
-                "Answer ONLY using the database context provided. "
-                "Be precise, mention control names and screens."
+                "You are a PowerApps code review assistant for PSR App. "
+                "You have access to a database of uploaded PowerApp versions, controls, screens, flows and diffs. "
+                "Answer questions about what changed between versions, which controls were added/removed/modified, "
+                "flow changes, screen details, and version history. "
+                "Use the database context provided to give precise, specific answers. "
+                "If asked about a specific control, screen, flow or version — look it up in the context and answer directly. "
+                "If the context doesn't contain enough information, say so clearly. "
+                "Never say you cannot answer — always try your best with the available context. "
+                "Format answers clearly with bullet points where helpful."
             )},
             {"role": "user", "content": f"Database Context:\n{context}\n\nUser Question:\n{question}"}
         ],
@@ -308,7 +314,8 @@ def ask_grok(question, context):
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             return data["choices"][0]["message"]["content"]
-    except Exception:
+    except Exception as e:
+        print(f"Grok API error: {e}")
         return answer_locally(question)
 
 
@@ -330,10 +337,26 @@ def process_upload(files, label=None):
     # Store new upload as HEAD
     # Use uploaded filename as label if no label provided
     if not label and files:
-      label = files[0].filename.replace(".zip", "").replace(".msapp", "")
-      release_id = _create_release(db, new_version, "head", label or f"v{new_version}")
+        label = files[0].filename.replace(".zip", "").replace(".msapp", "")
 
-      for file in files:
+    # ── Check for duplicate filename ──────────────────────────────────────
+ # ── Check for duplicate filename ──────────────────────────────────────
+    if label:
+        existing = db.execute(
+            "SELECT id FROM releases WHERE release_name=? AND branch_type='head'",
+            (label,)
+        ).fetchone()
+        if existing:
+            db.close()
+            return {
+                "error": f"'{label}' already exists. Try uploading a different file.",
+                "version": None,
+                "duplicate": True
+            }
+
+    release_id = _create_release(db, new_version, "head", label or f"v{new_version}")
+
+    for file in files:
         filename = file.filename
         data     = file.read()
         try:
@@ -784,6 +807,12 @@ async function submitUpload() {
   try {
     const r    = await fetch('/upload', {method:'POST', body:fd});
     const data = await r.json();
+    if (data.duplicate) {
+      showResult(`<div class="warn">⚠️ ${data.error}</div>`);
+      btn.disabled  = false;
+      btn.innerText = '⚡ Upload';
+      return;
+    }
     let msg = '';
     msg += `<div class="info">📌 Saved as <strong>v${data.version}</strong>${label ? ' — '+label : ''}</div>`;
     if (data.msapp)  msg += `<div class="success">✅ App parsed: ${data.msapp}</div>`;
