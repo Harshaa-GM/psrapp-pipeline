@@ -429,6 +429,8 @@ HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PSR PowerApp Review</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%237c3aed'/><stop offset='1' stop-color='%232563eb'/></linearGradient></defs><rect width='100' height='100' rx='20' fill='url(%23g)'/><text y='.9em' font-size='75' x='12'>⚡</text></svg>">
+
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f0f0f;color:#e8e8e8;height:100vh;display:flex;flex-direction:column}
@@ -521,21 +523,21 @@ HTML = """<!DOCTYPE html>
   .ctrl-row.highlight-added{background:#14532d22}
   .ctrl-row.highlight-removed{background:#7f1d1d22}
 
-  /* FLOWS */
-  .flows-content{flex:1;overflow-y:auto;padding:24px}
-  .flows-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px}
-  .flow-card{background:#141414;border:1px solid #222;border-radius:12px;padding:16px}
-  .flow-card h4{font-size:13px;font-weight:600;color:#e8e8e8;margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .flow-meta{display:flex;flex-wrap:wrap;gap:6px}
-  .flow-pill{padding:3px 9px;border-radius:20px;font-size:11px}
-  .flow-pill.trigger{background:#1e1e2e;color:#818cf8}
-  .flow-pill.freq{background:#1a2a1a;color:#4ade80}
-  .flow-pill.actions{background:#2a1a1a;color:#f87171}
-  .flow-header{display:flex;align-items:center;gap:8px;margin-bottom:10px}
-  .flow-badge{padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500}
-  .flow-badge.base-only{background:#7f1d1d33;color:#ef4444;border:1px solid #ef444433}
-  .flow-badge.head-only{background:#14532d33;color:#22c55e;border:1px solid #22c55e33}
-  .flow-badge.both{background:#1e1e2e;color:#818cf8;border:1px solid #818cf833}
+ /* FLOW COMPARE */
+.flow-drop{border:2px dashed #2a2a2a;border-radius:10px;padding:16px 20px;cursor:pointer;transition:all .2s;text-align:center}
+.flow-drop:hover{border-color:#2563eb;background:#1a1a2a}
+.flow-drop.has-file{border-color:#22c55e33;background:#14532d11}
+.flow-compare-card{background:#141414;border:1px solid #222;border-radius:12px;margin-bottom:10px;overflow:hidden}
+.flow-compare-header{display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;transition:background .15s}
+.flow-compare-header:hover{background:#1a1a1a}
+.flow-compare-body{padding:0 16px 14px;display:none;border-top:1px solid #1e1e1e}
+.flow-compare-body.open{display:block}
+.flow-change-row{display:grid;grid-template-columns:120px 1fr 1fr;gap:12px;padding:8px 0;border-bottom:1px solid #1a1a1a;font-size:12px}
+.flow-change-row:last-child{border-bottom:none}
+.flow-change-label{color:#555;font-weight:500}
+.flow-change-base{color:#ef4444}
+.flow-change-head{color:#22c55e}
+.flow-change-same{color:#555}
 
   /* CHAT */
   .chat-area{flex:1;overflow-y:auto;padding:24px;display:flex;flex-direction:column;gap:16px}
@@ -651,15 +653,33 @@ HTML = """<!DOCTYPE html>
 <!-- ══ FLOWS ═════════════════════════════════════════════════════════════════ -->
 <div class="panel" id="panel-flows">
   <div class="diff-panel">
-    <div class="diff-toolbar">
-      <label>Version</label>
-      <select class="pr-sel" id="pr-select-flows">
-        <option value="">-- Choose a version --</option>
-      </select>
-      <button class="load-btn" onclick="loadFlows()">Load Flows</button>
+    <div class="diff-toolbar" style="flex-direction:column;align-items:flex-start;gap:16px;padding:20px 24px">
+      <div style="display:flex;gap:16px;width:100%;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <div style="font-size:11px;color:#666;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Base Solution</div>
+          <div class="flow-drop" id="base-drop" onclick="document.getElementById('base-file').click()">
+            <input type="file" id="base-file" accept=".zip" style="display:none" onchange="handleFlowFile('base',this)">
+            <div id="base-label" style="color:#555;font-size:13px">📦 Drop or click to select base .zip</div>
+          </div>
+        </div>
+        <div style="flex:1;min-width:200px">
+          <div style="font-size:11px;color:#666;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Head Solution</div>
+          <div class="flow-drop" id="head-drop" onclick="document.getElementById('head-file').click()">
+            <input type="file" id="head-file" accept=".zip" style="display:none" onchange="handleFlowFile('head',this)">
+            <div id="head-label" style="color:#555;font-size:13px">📦 Drop or click to select head .zip</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button class="load-btn" id="compare-flows-btn" onclick="compareFlows()" disabled>⚡ Compare Flows</button>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="checkbox" id="show-unchanged" onchange="toggleUnchanged()">
+        <label for="show-unchanged" style="font-size:12px;color:#666;cursor:pointer">Show unchanged flows</label>
+      </div>
     </div>
     <div class="flows-content" id="flows-content">
-      <div class="empty-diff"><p>Select a version to see its flows.</p></div>
+      <div class="empty-diff"><p>Upload base and head solution files to compare flows.</p></div>
     </div>
   </div>
 </div>
@@ -782,6 +802,7 @@ async function submitUpload() {
     document.getElementById('ver-label').value = '';
     renderFileList();
     loadVersionLists();
+    loadHistory();
 
     async function loadHistory() {
   const res = await fetch('/versions');
@@ -949,49 +970,114 @@ function renderDiff(pr, data) {
   document.getElementById('diff-content').innerHTML = html;
 }
 
-// ── Flows ─────────────────────────────────────────────────────────────────────
-async function loadFlows() {
-  const pr = document.getElementById('pr-select-flows').value;
-  if (!pr) return;
-  document.getElementById('flows-content').innerHTML = '<div class="empty-diff"><p style="color:#555">Loading...</p></div>';
-  const data = await fetch('/flows/'+pr).then(r=>r.json());
-  renderFlows(pr, data);
+// ── Flows Compare ─────────────────────────────────────────────────────────────
+let baseFlowFile = null;
+let headFlowFile = null;
+let flowsData = [];
+
+function handleFlowFile(side, input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (side === 'base') {
+    baseFlowFile = file;
+    document.getElementById('base-label').innerHTML = `📦 <span style="color:#22c55e">${file.name}</span>`;
+    document.getElementById('base-drop').classList.add('has-file');
+  } else {
+    headFlowFile = file;
+    document.getElementById('head-label').innerHTML = `📦 <span style="color:#22c55e">${file.name}</span>`;
+    document.getElementById('head-drop').classList.add('has-file');
+  }
+  document.getElementById('compare-flows-btn').disabled = !(baseFlowFile && headFlowFile);
 }
 
-function renderFlows(pr, data) {
-  const base = new Map(data.base_flows.map(f=>[f.flow_name,f]));
-  const head = new Map(data.head_flows.map(f=>[f.flow_name,f]));
-  const all  = new Set([...base.keys(),...head.keys()]);
+async function compareFlows() {
+  if (!baseFlowFile || !headFlowFile) return;
+  document.getElementById('flows-content').innerHTML = '<div class="empty-diff"><p style="color:#555">Comparing flows...</p></div>';
+  
+  const fd = new FormData();
+  fd.append('base', baseFlowFile);
+  fd.append('head', headFlowFile);
 
-  if (all.size === 0) {
-    document.getElementById('flows-content').innerHTML = '<div class="empty-diff"><p style="color:#555">No flows for this version.</p></div>';
-    return;
+  try {
+    const res = await fetch('/flows/compare', {method:'POST', body:fd});
+    const data = await res.json();
+    flowsData = data.flows;
+    renderFlowCompare(data);
+  } catch(e) {
+    document.getElementById('flows-content').innerHTML = `<div class="empty-diff"><p style="color:#ef4444">Error: ${e}</p></div>`;
   }
+}
 
-  let html = `<div class="summary-cards">
-    <div class="card total"><div class="num">${all.size}</div><div class="lbl">Total Flows</div></div>
-    <div class="card added"><div class="num">${[...all].filter(f=>!base.has(f)).length}</div><div class="lbl">Added</div></div>
-    <div class="card removed"><div class="num">${[...all].filter(f=>!head.has(f)).length}</div><div class="lbl">Removed</div></div>
-    <div class="card changed"><div class="num">${[...all].filter(f=>base.has(f)&&head.has(f)).length}</div><div class="lbl">In Both</div></div>
-  </div><div class="flows-grid">`;
-
-  all.forEach(name => {
-    const f    = head.get(name)||base.get(name);
-    const stat = !base.has(name) ? '<span class="flow-badge head-only">✅ Added</span>'   :
-                 !head.has(name) ? '<span class="flow-badge base-only">❌ Removed</span>' :
-                 '<span class="flow-badge both">📋 In Both</span>';
-    const conns = JSON.parse(f.connections||'[]').filter(Boolean);
-    html += `<div class="flow-card">
-      <div class="flow-header">${stat}</div>
-      <h4>${name}</h4>
-      <div class="flow-meta">
-        ${f.trigger_type?`<span class="flow-pill trigger">🎯 ${f.trigger_type}</span>`:''}
-        ${f.trigger_freq?`<span class="flow-pill freq">🔄 ${f.trigger_freq}</span>`:''}
-        ${f.action_count?`<span class="flow-pill actions">⚡ ${f.action_count} actions</span>`:''}
-        ${conns.slice(0,2).map(c=>`<span class="flow-pill trigger" style="color:#a78bfa">${c}</span>`).join('')}
-      </div>
-    </div>`;
+function toggleUnchanged() {
+  const show = document.getElementById('show-unchanged').checked;
+  document.querySelectorAll('.flow-unchanged').forEach(el => {
+    el.style.display = show ? 'block' : 'none';
   });
+}
+
+function toggleFlowBody(id) {
+  const body = document.getElementById('body-'+id);
+  const arrow = document.getElementById('arrow-'+id);
+  body.classList.toggle('open');
+  arrow.innerText = body.classList.contains('open') ? '▲' : '▼';
+}
+
+function renderFlowCompare(data) {
+  const s = data.summary;
+  let html = `<div class="summary-cards" style="padding:20px 24px 0">
+    <div class="card total"><div class="num">${s.total}</div><div class="lbl">Total Flows</div></div>
+    <div class="card added"><div class="num">${s.added}</div><div class="lbl">Added</div></div>
+    <div class="card removed"><div class="num">${s.removed}</div><div class="lbl">Removed</div></div>
+    <div class="card changed"><div class="num">${s.modified}</div><div class="lbl">Modified</div></div>
+  </div>
+  <div style="padding:16px 24px">
+    <div style="font-size:11px;color:#555;display:grid;grid-template-columns:120px 1fr 1fr;gap:12px;padding:8px 16px;margin-bottom:4px">
+      <span>FIELD</span><span>PREVIOUS (BASE)</span><span>THIS VERSION (HEAD)</span>
+    </div>`;
+
+  data.flows.forEach((f, i) => {
+    const statusBadge = 
+      f.status === 'added'     ? '<span class="flow-badge head-only">✅ Added</span>'    :
+      f.status === 'removed'   ? '<span class="flow-badge base-only">❌ Removed</span>'  :
+      f.status === 'modified'  ? '<span class="flow-badge" style="background:#78350f33;color:#f59e0b;border:1px solid #f59e0b33">✏️ Modified</span>' :
+      '<span class="flow-badge both">📋 No Changes</span>';
+
+    const hasDetails = f.status === 'modified' || f.status === 'added' || f.status === 'removed';
+    const unchangedClass = f.status === 'unchanged' ? 'flow-unchanged' : '';
+    const unchangedStyle = f.status === 'unchanged' ? 'display:none' : '';
+
+    html += `<div class="flow-compare-card ${unchangedClass}" style="${unchangedStyle}">
+      <div class="flow-compare-header" onclick="${hasDetails ? `toggleFlowBody(${i})` : ''}">
+        <span style="flex:1;font-size:13px;font-weight:500;color:#e8e8e8">${f.name}</span>
+        ${statusBadge}
+        ${hasDetails ? `<span id="arrow-${i}" style="color:#555;font-size:11px;margin-left:8px">▼</span>` : ''}
+      </div>`;
+
+    if (f.status === 'modified' && f.changes?.length) {
+      html += `<div class="flow-compare-body" id="body-${i}">`;
+      f.changes.forEach(c => {
+        html += `<div class="flow-change-row">
+          <span class="flow-change-label">${c.field}</span>
+          <span class="flow-change-base">${c.base || '—'}</span>
+          <span class="flow-change-head">${c.head || '—'}</span>
+        </div>`;
+      });
+      html += `</div>`;
+    } else if (f.status === 'added' && f.head) {
+      html += `<div class="flow-compare-body" id="body-${i}">
+        <div class="flow-change-row"><span class="flow-change-label">Trigger</span><span class="flow-change-base">—</span><span class="flow-change-head">${f.head.trigger_type || '—'}</span></div>
+        <div class="flow-change-row"><span class="flow-change-label">Actions</span><span class="flow-change-base">—</span><span class="flow-change-head">${f.head.action_count} actions</span></div>
+      </div>`;
+    } else if (f.status === 'removed' && f.base) {
+      html += `<div class="flow-compare-body" id="body-${i}">
+        <div class="flow-change-row"><span class="flow-change-label">Trigger</span><span class="flow-change-base">${f.base.trigger_type || '—'}</span><span class="flow-change-head">—</span></div>
+        <div class="flow-change-row"><span class="flow-change-label">Actions</span><span class="flow-change-base">${f.base.action_count} actions</span><span class="flow-change-head">—</span></div>
+      </div>`;
+    }
+
+    html += `</div>`;
+  });
+
   html += '</div>';
   document.getElementById('flows-content').innerHTML = html;
 }
@@ -1088,6 +1174,97 @@ def diff_compare():
 @login_required
 def flows(pr_number):
     return jsonify(get_flows_data(pr_number))
+
+@app.route("/flows/compare", methods=["POST"])
+@login_required
+def flows_compare():
+    base_file = request.files.get("base")
+    head_file = request.files.get("head")
+    
+    if not base_file or not head_file:
+        return jsonify({"error": "Both base and head files are required"}), 400
+
+    def extract_flows(file):
+        flows = {}
+        data = file.read()
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                for fe in [f for f in zf.namelist() if "Workflows/" in f and f.endswith(".json")]:
+                    try:
+                        flow_data = json.loads(zf.read(fe).decode("utf-8-sig"))
+                        flow_name = re.sub(
+                            r'-[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}$',
+                            '', fe.split("/")[-1].replace(".json", ""),
+                            flags=re.IGNORECASE
+                        )
+                        # Extract trigger info
+                        trigger = flow_data.get("properties", {}).get("definition", {}).get("triggers", {})
+                        trigger_type = list(trigger.keys())[0] if trigger else "Unknown"
+                        trigger_freq = trigger.get(trigger_type, {}).get("recurrence", {}).get("frequency", "")
+                        
+                        # Extract actions
+                        actions = flow_data.get("properties", {}).get("definition", {}).get("actions", {})
+                        action_count = len(actions)
+                        
+                        # Extract connections
+                        connections = list(flow_data.get("properties", {}).get("connectionReferences", {}).keys())
+                        
+                        flows[flow_name] = {
+                            "trigger_type": trigger_type,
+                            "trigger_freq": trigger_freq,
+                            "action_count": action_count,
+                            "connections": connections
+                        }
+                    except Exception:
+                        pass
+        except Exception as e:
+            pass
+        return flows
+
+    base_flows = extract_flows(base_file)
+    head_flows = extract_flows(head_file)
+
+    all_flows = set(list(base_flows.keys()) + list(head_flows.keys()))
+    result = []
+
+    for name in sorted(all_flows):
+        b = base_flows.get(name)
+        h = head_flows.get(name)
+
+        if not b:
+            result.append({"name": name, "status": "added", "base": None, "head": h})
+        elif not h:
+            result.append({"name": name, "status": "removed", "base": b, "head": None})
+        else:
+            # Check what changed
+            changes = []
+            if b["trigger_type"] != h["trigger_type"]:
+                changes.append({"field": "Trigger Type", "base": b["trigger_type"], "head": h["trigger_type"]})
+            if b["trigger_freq"] != h["trigger_freq"]:
+                changes.append({"field": "Trigger Frequency", "base": b["trigger_freq"], "head": h["trigger_freq"]})
+            if b["action_count"] != h["action_count"]:
+                diff = h["action_count"] - b["action_count"]
+                changes.append({"field": "Actions", "base": str(b["action_count"]), "head": f"{h['action_count']} ({'+' if diff>0 else ''}{diff})"})
+            base_conns = set(b["connections"])
+            head_conns = set(h["connections"])
+            for c in head_conns - base_conns:
+                changes.append({"field": "Connection", "base": "—", "head": f"{c} ✅ Added"})
+            for c in base_conns - head_conns:
+                changes.append({"field": "Connection", "base": f"{c}", "head": "❌ Removed"})
+
+            status = "modified" if changes else "unchanged"
+            result.append({"name": name, "status": status, "base": b, "head": h, "changes": changes})
+
+    return jsonify({
+        "flows": result,
+        "summary": {
+            "total": len(all_flows),
+            "added": sum(1 for f in result if f["status"] == "added"),
+            "removed": sum(1 for f in result if f["status"] == "removed"),
+            "modified": sum(1 for f in result if f["status"] == "modified"),
+            "unchanged": sum(1 for f in result if f["status"] == "unchanged")
+        }
+    })
 
 @app.route("/ask", methods=["POST"])
 @login_required
