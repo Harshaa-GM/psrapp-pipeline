@@ -834,6 +834,10 @@ async function submitUpload() {
     loadVersionLists();
     loadHistory();
 
+    select.pr-sel{
+  max-width:400px;  /* ← add this */
+}
+
     async function loadHistory() {
   const res = await fetch('/versions');
   const data = await res.json();
@@ -890,7 +894,7 @@ async function loadVersionLists() {
     versions.forEach(v => {
       const o = document.createElement('option');
       o.value = v.pr_number;
-      o.innerText = `v${v.pr_number}${v.release_name !== 'v'+v.pr_number ? ' — '+v.release_name : ''}`;
+      o.innerText = `v${v.pr_number} — ${v.release_name || v.app_name || 'unknown'}`;
       if (String(v.pr_number) === String(curVal)) o.selected = true;
       sel.appendChild(o);
     });
