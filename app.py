@@ -8,6 +8,7 @@ from fileinput import filename
 from fileinput import filename
 from importlib.metadata import files
 
+from attrs import field
 from azure.storage.blob import BlobServiceClient
 import os, re, io, json, zipfile, urllib.request, urllib.error
 from flask import Flask, request, jsonify, render_template_string
@@ -169,8 +170,8 @@ def get_compare_data(base_ver: int, head_ver: int) -> dict:
         for name in set(base_ctrls) & set(head_ctrls):
           b, h = base_ctrls[name], head_ctrls[name]
           for field in ("control_type", "visible", "text_value", "on_select"):
-            bv = "" if b.get(field) is None else str(b.get(field))
-            hv = "" if h.get(field) is None else str(h.get(field))
+            bv = "" if b.get(field) is None else str(b.get(field)).strip()
+            hv = "" if h.get(field) is None else str(h.get(field)).strip()
             if bv != hv:
               diffs.append({"diff_type": "control_changed", "entity_name": name,
                           "field_name": field, "base_value": bv, "head_value": hv})
