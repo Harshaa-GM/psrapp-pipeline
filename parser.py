@@ -193,6 +193,14 @@ def parse_flow_and_store(
     actions  = defn.get("actions", {})
     conns    = props.get("connectionReferences", {})
 
+    flattened_actions = _extract_actions(actions)
+
+    logger.info(
+    "Flow %s contains %d actions",
+    flow_name,
+    len(flattened_actions)
+)
+
     # Extract trigger info
     trigger_type = trigger_freq = None
     for tname, tdata in triggers.items():
@@ -221,3 +229,43 @@ def parse_flow_and_store(
     db.commit()
     logger.info("✅ Stored flow '%s' (release_id=%d)", flow_name, release_id)
     return cur.lastrowid
+
+def _extract_actions(actions, parent=None, depth=0):
+    """
+    Recursively flatten every action in a Power Automate flow.
+    """
+
+    rows = []
+
+    for name, action in actions.items():
+
+        rows.append({
+            "name": name,
+            "type": action.get("type", ""),
+            "parent": parent,
+            "depth": depth,
+            "inputs": action.get("inputs", {}),
+            "runAfter": action.get("runAfter", {})
+        })
+
+        # Nested actions (Apply to each, Scope, Switch, etc.)
+        if "actions" in action:
+            rows.extend(
+                _extract_actions(
+                    action["actions"],
+                    name,
+                    depth + 1
+                )
+            )
+
+        # Else branch
+        if "else" in action:
+            rows.extend(
+                _extract_actions(
+                    action["else"].get("actions", {}),
+                    name + ":Else",
+                    depth + 1
+                )
+            )
+
+    return rows
