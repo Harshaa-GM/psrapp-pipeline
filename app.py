@@ -321,42 +321,32 @@ def ask_grok(question, context):
 
 def process_upload(files, label=None):
     """
-    Arun's flow:
-      1. Upload ONE solution → auto-assign version number (latest)
-      2. Store as 'head'
-      3. Promote previous head to 'base'
-      4. Auto-diff latest vs previous
+    Process each uploaded file as a separate version.
+    Each file gets its own version number and auto-diffs vs previous.
     """
-    db          = get_db()
-    new_version = _get_next_version(db)
-    versions    = _get_latest_two_versions(db)  # before this upload
-    results     = {"msapp": None, "flows": [], "errors": [], "version": new_version}
-
-    # Store new upload as HEAD
-    # Use uploaded filename as label if no label provided
-    if not label and files:
-        label = files[0].filename.replace(".zip", "").replace(".msapp", "")
-
-    # ── Check for duplicate filename ──────────────────────────────────────
- # ── Check for duplicate filename ──────────────────────────────────────
-    if label:
-        existing = db.execute(
-            "SELECT id FROM releases WHERE release_name=? AND branch_type='head'",
-            (label,)
-        ).fetchone()
-        if existing:
-            db.close()
-            return {
-                "error": f"'{label}' already exists. Try uploading a different file.",
-                "version": None,
-                "duplicate": True
-            }
-
-    release_id = _create_release(db, new_version, "head", label or f"v{new_version}")
+    db = get_db()
+    results = {"msapp": None, "flows": [], "errors": [], "versions": [], "diff_count": 0}
 
     for file in files:
         filename = file.filename
-        data     = file.read()
+        data = file.read()
+
+        # Use filename as label if not provided
+        file_label = label if label and len(files) == 1 else filename.replace(".zip", "").replace(".msapp", "").replace(".json", "")
+
+        # Check for duplicate
+        existing = db.execute(
+            "SELECT id FROM releases WHERE release_name=? AND branch_type='head'",
+            (file_label,)
+        ).fetchone()
+        if existing:
+            results["errors"].append(f"'{file_label}' already exists — skipped")
+            continue
+
+        new_version = _get_next_version(db)
+        versions = _get_latest_two_versions(db)
+        release_id = _create_release(db, new_version, "head", file_label)
+
         try:
             if filename.endswith(".zip"):
                 with zipfile.ZipFile(io.BytesIO(data)) as zf:
@@ -384,60 +374,62 @@ def process_upload(files, label=None):
                 results["flows"].append(flow_name)
         except Exception as e:
             results["errors"].append(f"{filename}: {str(e)}")
+            continue
 
-    diff_count   = 0
-    prev_version = versions[0] if versions else None
-
-    if prev_version:
-        # Create a base release pointing to previous version's apps
-        base_release_id = _create_release(db, new_version, "base", f"v{prev_version}-as-base")
-        prev_rel = db.execute(
-            "SELECT id FROM releases WHERE pr_number=? AND branch_type='head' ORDER BY created_at DESC LIMIT 1",
-            (prev_version,)
-        ).fetchone()
-        if prev_rel:
-            # Copy apps + controls from previous head into new base release
-            prev_apps = db.execute("SELECT * FROM apps WHERE release_id=?", (prev_rel["id"],)).fetchall()
-            for pa in prev_apps:
-                cur = db.execute("""
-                    INSERT INTO apps (release_id, blob_path, app_name, app_id, doc_version,
-                        last_saved_utc, layout_width, layout_height, orientation,
-                        app_type, parser_error_count, binding_error_count)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-                """, (base_release_id, pa["blob_path"], pa["app_name"], pa["app_id"],
-                      pa["doc_version"], pa["last_saved_utc"], pa["layout_width"],
-                      pa["layout_height"], pa["orientation"], pa["app_type"],
-                      pa["parser_error_count"], pa["binding_error_count"]))
-                new_app_id = cur.lastrowid
-                # Copy controls
-                prev_controls = db.execute("SELECT * FROM controls WHERE app_id=?", (pa["id"],)).fetchall()
-                for c in prev_controls:
-                    db.execute("""
-                        INSERT INTO controls (app_id, screen_name, control_name, control_type,
-                            parent_name, x, y, width, height, visible, text_value, on_select)
+        # Auto-diff vs previous version
+        diff_count = 0
+        prev_version = versions[0] if versions else None
+        if prev_version:
+            base_release_id = _create_release(db, new_version, "base", f"v{prev_version}-as-base")
+            prev_rel = db.execute(
+                "SELECT id FROM releases WHERE pr_number=? AND branch_type='head' ORDER BY created_at DESC LIMIT 1",
+                (prev_version,)
+            ).fetchone()
+            if prev_rel:
+                prev_apps = db.execute("SELECT * FROM apps WHERE release_id=?", (prev_rel["id"],)).fetchall()
+                for pa in prev_apps:
+                    cur = db.execute("""
+                        INSERT INTO apps (release_id, blob_path, app_name, app_id, doc_version,
+                            last_saved_utc, layout_width, layout_height, orientation,
+                            app_type, parser_error_count, binding_error_count)
                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-                    """, (new_app_id, c["screen_name"], c["control_name"], c["control_type"],
-                          c["parent_name"], c["x"], c["y"], c["width"], c["height"],
-                          c["visible"], c["text_value"], c["on_select"]))
-                # Copy data sources
-                prev_ds = db.execute("SELECT * FROM data_sources WHERE app_id=?", (pa["id"],)).fetchall()
-                for ds in prev_ds:
-                    db.execute("""
-                        INSERT INTO data_sources (app_id, name, type, schema, is_sample, is_writable)
-                        VALUES (?,?,?,?,?,?)
-                    """, (new_app_id, ds["name"], ds["type"], ds["schema"], ds["is_sample"], ds["is_writable"]))
-                # Copy feature flags
-                prev_flags = db.execute("SELECT * FROM feature_flags WHERE app_id=?", (pa["id"],)).fetchall()
-                for ff in prev_flags:
-                    db.execute("INSERT INTO feature_flags (app_id, flag, enabled) VALUES (?,?,?)",
-                               (new_app_id, ff["flag"], ff["enabled"]))
-        db.commit()
-        diff_count = compare_pr(db, new_version)
-        results["prev_version"] = prev_version
-    else:
-        results["prev_version"] = None
+                    """, (base_release_id, pa["blob_path"], pa["app_name"], pa["app_id"],
+                          pa["doc_version"], pa["last_saved_utc"], pa["layout_width"],
+                          pa["layout_height"], pa["orientation"], pa["app_type"],
+                          pa["parser_error_count"], pa["binding_error_count"]))
+                    new_app_id = cur.lastrowid
+                    prev_controls = db.execute("SELECT * FROM controls WHERE app_id=?", (pa["id"],)).fetchall()
+                    for c in prev_controls:
+                        db.execute("""
+                            INSERT INTO controls (app_id, screen_name, control_name, control_type,
+                                parent_name, x, y, width, height, visible, text_value, on_select)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                        """, (new_app_id, c["screen_name"], c["control_name"], c["control_type"],
+                              c["parent_name"], c["x"], c["y"], c["width"], c["height"],
+                              c["visible"], c["text_value"], c["on_select"]))
+                    prev_ds = db.execute("SELECT * FROM data_sources WHERE app_id=?", (pa["id"],)).fetchall()
+                    for ds in prev_ds:
+                        db.execute("""
+                            INSERT INTO data_sources (app_id, name, type, schema, is_sample, is_writable)
+                            VALUES (?,?,?,?,?,?)
+                        """, (new_app_id, ds["name"], ds["type"], ds["schema"], ds["is_sample"], ds["is_writable"]))
+                    prev_flags = db.execute("SELECT * FROM feature_flags WHERE app_id=?", (pa["id"],)).fetchall()
+                    for ff in prev_flags:
+                        db.execute("INSERT INTO feature_flags (app_id, flag, enabled) VALUES (?,?,?)",
+                                   (new_app_id, ff["flag"], ff["enabled"]))
+            db.commit()
+            diff_count = compare_pr(db, new_version)
 
-    results["diff_count"] = diff_count
+        results["versions"].append({
+            "version": new_version,
+            "label": file_label,
+            "diff_count": diff_count,
+            "prev_version": prev_version
+        })
+        results["diff_count"] += diff_count
+        results["version"] = new_version
+        results["prev_version"] = prev_version
+
     db.close()
     return results
 
@@ -624,7 +616,7 @@ HTML = """<!DOCTYPE html>
         <input type="file" multiple accept=".msapp,.zip,.json" onchange="handleFiles(this.files)">
         <div class="dz-icon">📦</div>
         <div class="dz-text">Drop solution file here or click to browse</div>
-        <div class="dz-sub">.msapp · .zip (solution) · .json (flow)</div>
+        <div class="dz-sub">.msapp · .zip (solution) · .json (flow) · Hold Cmd to select multiple</div>
       </div>
 
       <div class="file-list" id="file-list"></div>
