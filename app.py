@@ -5,10 +5,7 @@ Arun's requirement: upload ONE file → auto version → auto diff vs previous
 """
 
 from fileinput import filename
-from fileinput import filename
-from importlib.metadata import files
 
-from attrs import field
 from azure.storage.blob import BlobServiceClient
 import os, re, io, json, zipfile, urllib.request, urllib.error
 from flask import Flask, request, jsonify, render_template_string
@@ -834,27 +831,6 @@ async function submitUpload() {
     loadVersionLists();
     loadHistory();
 
-    select.pr-sel{
-  max-width:400px;  /* ← add this */
-}
-
-    async function loadHistory() {
-  const res = await fetch('/versions');
-  const data = await res.json();
-  const versions = data.versions;
-  const list = document.getElementById('history-list');
-  if (!versions.length) {
-    list.innerHTML = '<p style="color:#444;font-size:12px">No solutions uploaded yet.</p>';
-    return;
-  }
-  list.innerHTML = versions.map((v, i) => `
-    <div class="ver-row" onclick="switchTab('diff');document.getElementById('pr-select-head').value=${v.pr_number};loadDiff()">
-      <span class="ver-badge ${i===0?'latest':''}">v${v.pr_number}</span>
-      <span class="ver-name">${v.release_name || v.app_name || '—'}</span>
-      <span class="ver-date">${v.created_at ? v.created_at.split('T')[0] : ''}</span>
-      <span style="font-size:11px;color:#555;margin-left:auto">Click to diff →</span>
-    </div>`).join('');
-}
 
     // Auto-jump to diff viewer if diffs found
     if (data.diff_count > 0 && data.prev_version) {
@@ -928,6 +904,24 @@ function jumpToDiff(i, pr, versions) {
   const prevPr = versions[i+1] ? versions[i+1].pr_number : '';
   document.getElementById('pr-select-base').value = prevPr;
   if (prevPr) loadDiff();
+}
+
+async function loadHistory() {
+  const res = await fetch('/versions');
+  const data = await res.json();
+  const versions = data.versions;
+  const list = document.getElementById('history-list');
+  if (!versions.length) {
+    list.innerHTML = '<p style="color:#444;font-size:12px">No solutions uploaded yet.</p>';
+    return;
+  }
+  list.innerHTML = versions.map((v, i) => `
+    <div class="ver-row" onclick="switchTab('diff');document.getElementById('pr-select-head').value=${v.pr_number};loadDiff()">
+      <span class="ver-badge ${i===0?'latest':''}">v${v.pr_number}</span>
+      <span class="ver-name">${v.release_name || v.app_name || '—'}</span>
+      <span class="ver-date">${v.created_at ? v.created_at.split('T')[0] : ''}</span>
+      <span style="font-size:11px;color:#555;margin-left:auto">Click to diff →</span>
+    </div>`).join('');
 }
 
 // ── Diff viewer ───────────────────────────────────────────────────────────────
