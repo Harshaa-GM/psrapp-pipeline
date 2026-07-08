@@ -1204,6 +1204,40 @@ def flows_compare():
     if not base_file or not head_file:
         return jsonify({"error": "Both base and head files are required"}), 400
 
+def flatten_actions(actions, parent=None):
+    """
+    Recursively flatten all Power Automate actions.
+    """
+
+    result = {}
+
+    for name, action in actions.items():
+
+        result[name] = {
+            "type": action.get("type", ""),
+            "inputs": action.get("inputs", {}),
+            "runAfter": action.get("runAfter", {}),
+            "parent": parent
+        }
+
+        if "actions" in action:
+            result.update(
+                flatten_actions(
+                    action["actions"],
+                    name
+                )
+            )
+
+        if "else" in action:
+            result.update(
+                flatten_actions(
+                    action["else"].get("actions", {}),
+                    name + ":Else"
+                )
+            )
+
+    return result
+
     def extract_flows(file):
         flows = {}
         data = file.read()
@@ -1223,8 +1257,12 @@ def flows_compare():
                         trigger_freq = trigger.get(trigger_type, {}).get("recurrence", {}).get("frequency", "")
                         
                         # Extract actions
-                        actions = flow_data.get("properties", {}).get("definition", {}).get("actions", {})
-                        action_count = len(actions)
+                        actions = flatten_actions(
+                          flow_data
+                              .get("properties", {})
+                              .get("definition", {})
+                              .get("actions", {})
+)
                         
                         # Extract connections
                         connections = list(flow_data.get("properties", {}).get("connectionReferences", {}).keys())
@@ -1232,7 +1270,7 @@ def flows_compare():
                         flows[flow_name] = {
                             "trigger_type": trigger_type,
                             "trigger_freq": trigger_freq,
-                            "action_count": action_count,
+                            "actions": actions,
                             "connections": connections
                         }
                     except Exception:
@@ -1251,39 +1289,82 @@ def flows_compare():
         b = base_flows.get(name)
         h = head_flows.get(name)
 
-        if not b:
+    if not b:
             result.append({"name": name, "status": "added", "base": None, "head": h})
-        elif not h:
+    elif not h:
             result.append({"name": name, "status": "removed", "base": b, "head": None})
-        else:
-            # Check what changed
-            changes = []
-            if b["trigger_type"] != h["trigger_type"]:
-                changes.append({"field": "Trigger Type", "base": b["trigger_type"], "head": h["trigger_type"]})
-            if b["trigger_freq"] != h["trigger_freq"]:
-                changes.append({"field": "Trigger Frequency", "base": b["trigger_freq"], "head": h["trigger_freq"]})
-            if b["action_count"] != h["action_count"]:
-                diff = h["action_count"] - b["action_count"]
-                changes.append({"field": "Actions", "base": str(b["action_count"]), "head": f"{h['action_count']} ({'+' if diff>0 else ''}{diff})"})
-            base_conns = set(b["connections"])
-            head_conns = set(h["connections"])
-            for c in head_conns - base_conns:
-                changes.append({"field": "Connection", "base": "—", "head": f"{c} ✅ Added"})
-            for c in base_conns - head_conns:
-                changes.append({"field": "Connection", "base": f"{c}", "head": "❌ Removed"})
+    else:
+    # Check what changed
+      changes = []
 
-            status = "modified" if changes else "unchanged"
-            result.append({"name": name, "status": status, "base": b, "head": h, "changes": changes})
+    if b["trigger_type"] != h["trigger_type"]:
+        changes.append({
+            "field": "Trigger Type",
+            "base": b["trigger_type"],
+            "head": h["trigger_type"]
+        })
 
-    return jsonify({
-        "flows": result,
-        "summary": {
-            "total": len(all_flows),
-            "added": sum(1 for f in result if f["status"] == "added"),
-            "removed": sum(1 for f in result if f["status"] == "removed"),
-            "modified": sum(1 for f in result if f["status"] == "modified"),
-            "unchanged": sum(1 for f in result if f["status"] == "unchanged")
-        }
+    if b["trigger_freq"] != h["trigger_freq"]:
+        changes.append({
+            "field": "Trigger Frequency",
+            "base": b["trigger_freq"],
+            "head": h["trigger_freq"]
+        })
+
+    base_actions = b["actions"]
+    head_actions = h["actions"]
+
+    # Added actions
+    for action in sorted(set(head_actions) - set(base_actions)):
+        changes.append({
+            "field": "Added Action",
+            "base": "—",
+            "head": action
+        })
+
+    # Removed actions
+    for action in sorted(set(base_actions) - set(head_actions)):
+        changes.append({
+            "field": "Removed Action",
+            "base": action,
+            "head": "—"
+        })
+
+    # Modified actions
+    for action in sorted(set(base_actions) & set(head_actions)):
+        if base_actions[action] != head_actions[action]:
+            changes.append({
+    "field": "Modified Action",
+    "base": base_actions[action],
+    "head": head_actions[action],
+    "action_name": action
+})
+
+    base_conns = set(b["connections"])
+    head_conns = set(h["connections"])
+
+    for c in head_conns - base_conns:
+        changes.append({
+            "field": "Connection",
+            "base": "—",
+            "head": f"{c} ✅ Added"
+        })
+
+    for c in base_conns - head_conns:
+        changes.append({
+            "field": "Connection",
+            "base": c,
+            "head": "❌ Removed"
+        })
+
+    status = "modified" if changes else "unchanged"
+
+    result.append({
+        "name": name,
+        "status": status,
+        "base": b,
+        "head": h,
+        "changes": changes
     })
 
 @app.route("/ask", methods=["POST"])
