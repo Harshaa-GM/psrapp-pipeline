@@ -419,6 +419,12 @@ def process_upload(files, label=None):
                                    (new_app_id, ff["flag"], ff["enabled"]))
             db.commit()
             diff_count = compare_pr(db, new_version)
+            print("=" * 60)
+            print("compare_pr returned:", diff_count)
+            print("Type:", type(diff_count))
+            print("=" * 60)
+            if diff_count is None:
+              diff_count = 0
 
         results["versions"].append({
             "version": new_version,
