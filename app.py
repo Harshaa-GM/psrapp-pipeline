@@ -1291,7 +1291,7 @@ def flows_compare():
         }
     })
 
-    
+
 @app.route("/ask", methods=["POST"])
 @login_required
 def ask():
