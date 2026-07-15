@@ -1209,72 +1209,16 @@ def flows(pr_number):
 def flows_compare():
     base_file = request.files.get("base")
     head_file = request.files.get("head")
-    
+
     if not base_file or not head_file:
         return jsonify({"error": "Both base and head files are required"}), 400
-
-def flatten_actions(actions, parent=None):
-    """
-    Recursively flatten all Power Automate actions.
-    Returns:
-    {
-        "Send_email": {
-            "type": "OpenApiConnection",
-            "inputs": {...},
-            "runAfter": {...},
-            "parent": "Condition"
-        }
-    }
-    """
-
-    result = {}
-
-    for name, action in actions.items():
-
-        result[name] = {
-            "type": action.get("type", ""),
-            "inputs": action.get("inputs", {}),
-            "runAfter": action.get("runAfter", {}),
-            "parent": parent
-        }
-
-        # Nested actions
-        if "actions" in action:
-            result.update(
-                flatten_actions(
-                    action["actions"],
-                    name
-                )
-            )
-
-        # Else branch
-        if "else" in action:
-            result.update(
-                flatten_actions(
-                    action["else"].get("actions", {}),
-                    name + ":Else"
-                )
-            )
-
-        # Switch cases
-        if "cases" in action:
-            for case_name, case in action["cases"].items():
-                result.update(
-                    flatten_actions(
-                        case.get("actions", {}),
-                        f"{name}:{case_name}"
-                    )
-                )
-
-    return result
 
     def extract_flows(file):
         flows = {}
         try:
             data = file.read()
             with zipfile.ZipFile(io.BytesIO(data)) as zf:
-                workflow_files = [f for f in zf.namelist() if "Workflows/" in f and f.endswith(".json")]
-                for fe in workflow_files:
+                for fe in [f for f in zf.namelist() if "Workflows/" in f and f.endswith(".json")]:
                     try:
                         flow_data = json.loads(zf.read(fe).decode("utf-8-sig"))
                         flow_name = re.sub(
@@ -1285,35 +1229,19 @@ def flatten_actions(actions, parent=None):
                         props = flow_data.get("properties", {})
                         definition = props.get("definition", {})
                         trigger = definition.get("triggers", {})
-
                         trigger_type = list(trigger.keys())[0] if trigger else "Unknown"
-
-                        trigger_data = trigger.get(trigger_type, {})
-
-                        recurrence = trigger_data.get("recurrence", {})
-
-                        trigger_freq = recurrence.get("frequency", "")
-                        trigger_interval = recurrence.get("interval", "")
-                        trigger_timezone = recurrence.get("timeZone", "")
-
-                        trigger_spliton = trigger_data.get("splitOn", "")
-
-                        trigger_conditions = trigger_data.get("conditions", [])
-
+                        trigger_freq = ""
+                        if trigger and trigger_type in trigger:
+                            trigger_freq = trigger[trigger_type].get("recurrence", {}).get("frequency", "")
                         actions = definition.get("actions", {})
-                        flat_actions = flatten_actions(actions)
+                        action_count = len(actions)
                         connections = list(props.get("connectionReferences", {}).keys())
                         flows[flow_name] = {
-                        "trigger_type": trigger_type,
-                        "trigger_freq": trigger_freq,
-                        "trigger_interval": trigger_interval,
-                        "trigger_timezone": trigger_timezone,
-                        "trigger_spliton": trigger_spliton,
-                        "trigger_conditions": trigger_conditions,
-                        "action_count": action_count,
-                        "connections": connections,
-                        "actions": flatten_actions(actions)
-                      }
+                            "trigger_type": trigger_type,
+                            "trigger_freq": trigger_freq,
+                            "action_count": action_count,
+                            "connections": connections
+                        }
                     except Exception as e:
                         print(f"Flow parse error {fe}: {e}")
         except Exception as e:
@@ -1335,152 +1263,23 @@ def flatten_actions(actions, parent=None):
         elif not h:
             result.append({"name": name, "status": "removed", "base": b, "head": None, "changes": []})
         else:
+            changes = []
+            if b["trigger_type"] != h["trigger_type"]:
+                changes.append({"field": "Trigger Type", "base": b["trigger_type"], "head": h["trigger_type"]})
+            if b["trigger_freq"] != h["trigger_freq"]:
+                changes.append({"field": "Trigger Frequency", "base": b["trigger_freq"] or "—", "head": h["trigger_freq"] or "—"})
+            if b["action_count"] != h["action_count"]:
+                diff = h["action_count"] - b["action_count"]
+                changes.append({"field": "Actions", "base": str(b["action_count"]), "head": f"{h['action_count']} ({'+' if diff>0 else ''}{diff})"})
+            base_conns = set(b["connections"])
+            head_conns = set(h["connections"])
+            for c in head_conns - base_conns:
+                changes.append({"field": "Connection Added", "base": "—", "head": c})
+            for c in base_conns - head_conns:
+                changes.append({"field": "Connection Removed", "base": c, "head": "—"})
+            status = "modified" if changes else "unchanged"
+            result.append({"name": name, "status": status, "base": b, "head": h, "changes": changes})
 
-          changes = []
-
-    # Trigger comparison
-    if b["trigger_type"] != h["trigger_type"]:
-        changes.append({
-            "field": "Trigger Type",
-            "base": b["trigger_type"],
-            "head": h["trigger_type"]
-        })
-
-    if b["trigger_freq"] != h["trigger_freq"]:
-        changes.append({
-            "field": "Trigger Frequency",
-            "base": b["trigger_freq"] or "—",
-            "head": h["trigger_freq"] or "—"
-        })
-        
-    if b["trigger_interval"] != h["trigger_interval"]:
-      changes.append({
-        "field": "Trigger Interval",
-        "base": str(b["trigger_interval"]),
-        "head": str(h["trigger_interval"])
-    })
-
-    if b["trigger_timezone"] != h["trigger_timezone"]:
-      changes.append({
-        "field": "Time Zone",
-        "base": b["trigger_timezone"] or "—",
-        "head": h["trigger_timezone"] or "—"
-    })
-
-    if b["trigger_spliton"] != h["trigger_spliton"]:
-      changes.append({
-        "field": "Split On",
-        "base": str(b["trigger_spliton"]) or "—",
-        "head": str(h["trigger_spliton"]) or "—"
-    })
-
-    if b["trigger_conditions"] != h["trigger_conditions"]:
-      changes.append({
-        "field": "Trigger Conditions",
-        "base": json.dumps(b["trigger_conditions"]),
-        "head": json.dumps(h["trigger_conditions"])
-    })
-
-    # Action count comparison
-    if b["action_count"] != h["action_count"]:
-        diff = h["action_count"] - b["action_count"]
-        changes.append({
-            "field": "Actions",
-            "base": str(b["action_count"]),
-            "head": f"{h['action_count']} ({'+' if diff > 0 else ''}{diff})"
-    })
-
-    # ----------------------------
-    # Deep Action Comparison
-    # ----------------------------
-    base_actions = b["actions"]
-    head_actions = h["actions"]
-
-    # Added actions
-    for action in sorted(set(head_actions) - set(base_actions)):
-        changes.append({
-            "field": "Added Action",
-            "base": "—",
-            "head": action
-        })
-
-    # Removed actions
-    for action in sorted(set(base_actions) - set(head_actions)):
-        changes.append({
-            "field": "Removed Action",
-            "base": action,
-            "head": "—"
-        })
-        
-   # Modified actions
-    for action in sorted(set(base_actions) & set(head_actions)):
-
-      base_action = base_actions[action]
-      head_action = head_actions[action]
-
-    # Compare Type
-    if base_action["type"] != head_action["type"]:
-        changes.append({
-            "field": "Action Type",
-            "action_name": action,
-            "base": base_action["type"],
-            "head": head_action["type"]
-        })
-
-    # Compare Parent
-    if base_action["parent"] != head_action["parent"]:
-        changes.append({
-            "field": "Parent",
-            "action_name": action,
-            "base": base_action["parent"] or "Root",
-            "head": head_action["parent"] or "Root"
-        })
-
-    # Compare Run After
-    if base_action["runAfter"] != head_action["runAfter"]:
-        changes.append({
-            "field": "Run After",
-            "action_name": action,
-            "base": json.dumps(base_action["runAfter"], indent=2),
-            "head": json.dumps(head_action["runAfter"], indent=2)
-        })
-
-    # Compare Inputs
-    if base_action["inputs"] != head_action["inputs"]:
-        changes.append({
-            "field": "Inputs",
-            "action_name": action,
-            "base": json.dumps(base_action["inputs"], indent=2),
-            "head": json.dumps(head_action["inputs"], indent=2)
-        })
-
-    # Connection comparison
-    base_conns = set(b["connections"])
-    head_conns = set(h["connections"])
-
-    for c in head_conns - base_conns:
-        changes.append({
-            "field": "Connection Added",
-            "base": "—",
-            "head": c
-        })
-
-    for c in base_conns - head_conns:
-        changes.append({
-            "field": "Connection Removed",
-            "base": c,
-            "head": "—"
-        })
-
-    status = "modified" if changes else "unchanged"
-
-    result.append({
-        "name": name,
-        "status": status,
-        "base": b,
-        "head": h,
-        "changes": changes
-    })
     return jsonify({
         "flows": result,
         "summary": {
@@ -1491,59 +1290,8 @@ def flatten_actions(actions, parent=None):
             "unchanged": sum(1 for f in result if f["status"] == "unchanged")
         }
     })
-    # Added actions
-    for action in sorted(set(head_actions) - set(base_actions)):
-        changes.append({
-            "field": "Added Action",
-            "base": "—",
-            "head": action
-      })
 
-    # Removed actions
-    for action in sorted(set(base_actions) - set(head_actions)):
-        changes.append({
-            "field": "Removed Action",
-            "base": action,
-            "head": "—"
-        })
-
-    # Modified actions
-    for action in sorted(set(base_actions) & set(head_actions)):
-        if base_actions[action] != head_actions[action]:
-            changes.append({
-    "field": "Modified Action",
-    "base": base_actions[action],
-    "head": head_actions[action],
-    "action_name": action
-     })
-
-    base_conns = set(b["connections"])
-    head_conns = set(h["connections"])
-
-    for c in head_conns - base_conns:
-        changes.append({
-            "field": "Connection",
-            "base": "—",
-            "head": f"{c} ✅ Added"
-        })
-
-    for c in base_conns - head_conns:
-        changes.append({
-            "field": "Connection",
-            "base": c,
-            "head": "❌ Removed"
-        })
-
-    status = "modified" if changes else "unchanged"
-
-    result.append({
-        "name": name,
-        "status": status,
-        "base": b,
-        "head": h,
-        "changes": changes
-    })
-
+    
 @app.route("/ask", methods=["POST"])
 @login_required
 def ask():
