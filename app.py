@@ -1209,6 +1209,7 @@ def flows(pr_number):
     return jsonify(get_flows_data(pr_number))
 
 @app.route("/flows/compare", methods=["POST"])
+@login_required
 def flows_compare():
   try:
     base_file = request.files.get("base")
