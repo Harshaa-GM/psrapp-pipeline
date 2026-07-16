@@ -1025,14 +1025,18 @@ async function compareFlows() {
   fd.append('head', headFlowFile);
 
   try {
-    const res = await fetch('/flows/compare', {method:'POST', body:fd});
-    const data = await res.json();
-    flowsData = data.flows;
-    renderFlowCompare(data);
-  } catch(e) {
-    document.getElementById('flows-content').innerHTML = `<div class="empty-diff"><p style="color:#ef4444">Error: ${e}</p></div>`;
-  }
+    const res = await fetch('/flows/compare', {
+    method: 'POST',
+    body: fd
+});
+
+if (!res.ok) {
+    const text = await res.text();
+    console.log(text);
+    throw new Error(text);
 }
+
+const data = await res.json();
 
 function toggleUnchanged() {
   const show = document.getElementById('show-unchanged').checked;
@@ -1205,7 +1209,6 @@ def flows(pr_number):
     return jsonify(get_flows_data(pr_number))
 
 @app.route("/flows/compare", methods=["POST"])
-@login_required
 def flows_compare():
   try:
     base_file = request.files.get("base")
