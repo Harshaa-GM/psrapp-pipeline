@@ -1017,39 +1017,113 @@ function handleFlowFile(side, input) {
 }
 
 async function compareFlows() {
-  if (!baseFlowFile || !headFlowFile) return;
-  document.getElementById('flows-content').innerHTML = '<div class="empty-diff"><p style="color:#555">Comparing flows...</p></div>';
-  
-  const fd = new FormData();
-  fd.append('base', baseFlowFile);
-  fd.append('head', headFlowFile);
+    if (!baseFlowFile || !headFlowFile) return;
 
-  try {
-    const res = await fetch('/flows/compare', {
-    method: 'POST',
-    body: fd
-});
+    document.getElementById('flows-content').innerHTML =
+        '<div class="empty-diff"><p style="color:#555">Comparing flows...</p></div>';
 
-if (!res.ok) {
-    const text = await res.text();
-    console.log(text);
-    throw new Error(text);
-}
+    const fd = new FormData();
+    fd.append('base', baseFlowFile);
+    fd.append('head', headFlowFile);
 
-const data = await res.json();
+    try {
+        const res = await fetch('/flows/compare', {
+            method: 'POST',
+            body: fd
+        });
+
+        if (!res.ok) {
+            const text = await res.text();
+            console.log(text);
+            throw new Error(text);
+        }
+
+        const data = await res.json();
+
+        // Build your HTML here
+        let html = "";
+
+        html += `
+            <div class="summary">
+                <p>Total: ${data.summary.total}</p>
+                <p>Added: ${data.summary.added}</p>
+                <p>Removed: ${data.summary.removed}</p>
+                <p>Modified: ${data.summary.modified}</p>
+                <p>Unchanged: ${data.summary.unchanged}</p>
+            </div>
+        `;
+
+        data.flows.forEach((flow, index) => {
+            html += `
+                <div class="flow-card flow-${flow.status}">
+                    <div class="flow-header"
+                         onclick="toggleFlowBody(${index})">
+                        <span>${flow.name}</span>
+                        <span id="arrow-${index}">▼</span>
+                    </div>
+
+                    <div class="flow-body" id="body-${index}">
+                        <p>Status: ${flow.status}</p>
+            `;
+
+            if (flow.changes.length > 0) {
+                flow.changes.forEach(change => {
+                    html += `
+                        <div class="change-row">
+                            <strong>${change.field}</strong><br>
+                            Base: ${change.base}<br>
+                            Head: ${change.head}
+                        </div>
+                    `;
+                });
+            } else {
+                html += `<p>No changes.</p>`;
+            }
+
+            html += `
+                    </div>
+                </div>
+            `;
+        });
+
+        document.getElementById('flows-content').innerHTML = html;
+
+    } catch (e) {
+        console.error(e);
+
+        document.getElementById('flows-content').innerHTML = `
+            <div class="empty-diff">
+                <p style="color:red;">
+                    Error comparing flows.
+                </p>
+            </div>
+        `;
+    }
+}   // <-- compareFlows ENDS HERE
+
 
 function toggleUnchanged() {
-  const show = document.getElementById('show-unchanged').checked;
-  document.querySelectorAll('.flow-unchanged').forEach(el => {
-    el.style.display = show ? 'block' : 'none';
-  });
+    const show =
+        document.getElementById('show-unchanged').checked;
+
+    document.querySelectorAll('.flow-unchanged')
+        .forEach(el => {
+            el.style.display = show ? 'block' : 'none';
+        });
 }
 
+
 function toggleFlowBody(id) {
-  const body = document.getElementById('body-'+id);
-  const arrow = document.getElementById('arrow-'+id);
-  body.classList.toggle('open');
-  arrow.innerText = body.classList.contains('open') ? '▲' : '▼';
+    const body =
+        document.getElementById('body-' + id);
+
+    const arrow =
+        document.getElementById('arrow-' + id);
+
+    body.classList.toggle('open');
+
+    arrow.innerText =
+        body.classList.contains('open') ? '▲' : '▼';
 }
 
 function renderFlowCompare(data) {
