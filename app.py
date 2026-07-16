@@ -1277,7 +1277,7 @@ def flows_compare():
         all_flow_names = sorted(
             set(base_flows.keys()) | set(head_flows.keys())
         )
-    result = []
+        result = []
 
     for name in all_flow_names:
         b = base_flows.get(name)
