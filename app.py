@@ -1192,71 +1192,91 @@ def upload():
 def diff(pr_number):
     return jsonify(get_diff_data(pr_number))
 
-@app.route("/diff/compare")
-@login_required
-def diff_compare():
-    base = request.args.get("base", type=int)
-    head = request.args.get("head", type=int)
-    if not base or not head:
-        return jsonify({"error": "base and head version numbers are required"}), 400
-    if base == head:
-        return jsonify({"error": "base and head must be different versions"}), 400
-    return jsonify(get_compare_data(base, head))
-
-@app.route("/flows/<int:pr_number>")
-@login_required
-def flows(pr_number):
-    return jsonify(get_flows_data(pr_number))
-
 @app.route("/flows/compare", methods=["POST"])
 @login_required
 def flows_compare():
-  try:
-    base_file = request.files.get("base")
-    head_file = request.files.get("head")
+    try:
+        base_file = request.files.get("base")
+        head_file = request.files.get("head")
 
-    if not base_file or not head_file:
-        return jsonify({"error": "Both base and head files are required"}), 400
+        if not base_file or not head_file:
+            return jsonify(
+                {"error": "Both base and head files are required"}
+            ), 400
 
-    def extract_flows(file):
-        flows = {}
-        try:
-            data = file.read()
-            with zipfile.ZipFile(io.BytesIO(data)) as zf:
-                for fe in [f for f in zf.namelist() if "Workflows/" in f and f.endswith(".json")]:
-                    try:
-                        flow_data = json.loads(zf.read(fe).decode("utf-8-sig"))
-                        flow_name = re.sub(
-                            r'-[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}$',
-                            '', fe.split("/")[-1].replace(".json", ""),
-                            flags=re.IGNORECASE
-                        )
-                        props = flow_data.get("properties", {})
-                        definition = props.get("definition", {})
-                        trigger = definition.get("triggers", {})
-                        trigger_type = list(trigger.keys())[0] if trigger else "Unknown"
-                        trigger_freq = ""
-                        if trigger and trigger_type in trigger:
-                            trigger_freq = trigger[trigger_type].get("recurrence", {}).get("frequency", "")
-                        actions = definition.get("actions", {})
-                        action_count = len(actions)
-                        connections = list(props.get("connectionReferences", {}).keys())
-                        flows[flow_name] = {
-                            "trigger_type": trigger_type,
-                            "trigger_freq": trigger_freq,
-                            "action_count": action_count,
-                            "connections": connections
-                        }
-                    except Exception as e:
-                        print(f"Flow parse error {fe}: {e}")
-        except Exception as e:
-            print(f"ZIP extract error: {e}")
-        return flows
+        def extract_flows(file):
+            flows = {}
 
-    base_flows = extract_flows(base_file)
-    head_flows = extract_flows(head_file)
+            try:
+                data = file.read()
 
-    all_flow_names = sorted(set(list(base_flows.keys()) + list(head_flows.keys())))
+                with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                    for fe in [
+                        f for f in zf.namelist()
+                        if "Workflows/" in f and f.endswith(".json")
+                    ]:
+                        try:
+                            flow_data = json.loads(
+                                zf.read(fe).decode("utf-8-sig")
+                            )
+
+                            flow_name = re.sub(
+                                r'-[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}$',
+                                '',
+                                fe.split("/")[-1].replace(".json", ""),
+                                flags=re.IGNORECASE
+                            )
+
+                            props = flow_data.get("properties", {})
+                            definition = props.get("definition", {})
+                            trigger = definition.get("triggers", {})
+
+                            trigger_type = (
+                                list(trigger.keys())[0]
+                                if trigger else "Unknown"
+                            )
+
+                            trigger_freq = ""
+
+                            if trigger and trigger_type in trigger:
+                                trigger_freq = (
+                                    trigger[trigger_type]
+                                    .get("recurrence", {})
+                                    .get("frequency", "")
+                                )
+
+                            actions = definition.get("actions", {})
+                            action_count = len(actions)
+
+                            connections = list(
+                                props.get(
+                                    "connectionReferences", {}
+                                ).keys()
+                            )
+
+                            flows[flow_name] = {
+                                "trigger_type": trigger_type,
+                                "trigger_freq": trigger_freq,
+                                "action_count": action_count,
+                                "connections": connections
+                            }
+
+                        except Exception as e:
+                            print(
+                                f"Flow parse error {fe}: {e}"
+                            )
+
+            except Exception as e:
+                print(f"ZIP extract error: {e}")
+
+            return flows
+
+        base_flows = extract_flows(base_file)
+        head_flows = extract_flows(head_file)
+
+        all_flow_names = sorted(
+            set(base_flows.keys()) | set(head_flows.keys())
+        )
     result = []
 
     for name in all_flow_names:
