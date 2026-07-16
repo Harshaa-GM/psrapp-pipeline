@@ -1279,7 +1279,7 @@ def flows_compare():
         )
         result = []
 
-    for name in all_flow_names:
+      for name in all_flow_names:
         b = base_flows.get(name)
         h = head_flows.get(name)
 
