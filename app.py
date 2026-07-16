@@ -1207,6 +1207,7 @@ def flows(pr_number):
 @app.route("/flows/compare", methods=["POST"])
 @login_required
 def flows_compare():
+  try:
     base_file = request.files.get("base")
     head_file = request.files.get("head")
 
@@ -1281,15 +1282,35 @@ def flows_compare():
             result.append({"name": name, "status": status, "base": b, "head": h, "changes": changes})
 
     return jsonify({
-        "flows": result,
-        "summary": {
-            "total": len(all_flow_names),
-            "added": sum(1 for f in result if f["status"] == "added"),
-            "removed": sum(1 for f in result if f["status"] == "removed"),
-            "modified": sum(1 for f in result if f["status"] == "modified"),
-            "unchanged": sum(1 for f in result if f["status"] == "unchanged")
-        }
-    })
+            "flows": result,
+            "summary": {
+                "total": len(all_flow_names),
+                "added": sum(
+                    1 for f in result if f["status"] == "added"
+                ),
+                "removed": sum(
+                    1 for f in result if f["status"] == "removed"
+                ),
+                "modified": sum(
+                    1 for f in result if f["status"] == "modified"
+                ),
+                "unchanged": sum(
+                    1 for f in result if f["status"] == "unchanged"
+                )
+            }
+        })
+
+    except Exception as e:
+        import traceback
+
+        print("=" * 50)
+        print("FLOWS_COMPARE FAILED")
+        traceback.print_exc()
+        print("=" * 50)
+
+        return jsonify({
+            "error": str(e)
+        }), 500
 
 
 @app.route("/ask", methods=["POST"])
