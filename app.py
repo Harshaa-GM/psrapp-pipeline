@@ -1277,35 +1277,83 @@ def flows_compare():
         all_flow_names = sorted(
             set(base_flows.keys()) | set(head_flows.keys())
         )
-        result = []
+                result = []
 
-      for name in all_flow_names:
-        b = base_flows.get(name)
-        h = head_flows.get(name)
+        for name in all_flow_names:
+            b = base_flows.get(name)
+            h = head_flows.get(name)
 
-        if not b:
-            result.append({"name": name, "status": "added", "base": None, "head": h, "changes": []})
-        elif not h:
-            result.append({"name": name, "status": "removed", "base": b, "head": None, "changes": []})
-        else:
-            changes = []
-            if b["trigger_type"] != h["trigger_type"]:
-                changes.append({"field": "Trigger Type", "base": b["trigger_type"], "head": h["trigger_type"]})
-            if b["trigger_freq"] != h["trigger_freq"]:
-                changes.append({"field": "Trigger Frequency", "base": b["trigger_freq"] or "—", "head": h["trigger_freq"] or "—"})
-            if b["action_count"] != h["action_count"]:
-                diff = h["action_count"] - b["action_count"]
-                changes.append({"field": "Actions", "base": str(b["action_count"]), "head": f"{h['action_count']} ({'+' if diff>0 else ''}{diff})"})
-            base_conns = set(b["connections"])
-            head_conns = set(h["connections"])
-            for c in head_conns - base_conns:
-                changes.append({"field": "Connection Added", "base": "—", "head": c})
-            for c in base_conns - head_conns:
-                changes.append({"field": "Connection Removed", "base": c, "head": "—"})
-            status = "modified" if changes else "unchanged"
-            result.append({"name": name, "status": status, "base": b, "head": h, "changes": changes})
+            if not b:
+                result.append({
+                    "name": name,
+                    "status": "added",
+                    "base": None,
+                    "head": h,
+                    "changes": []
+                })
 
-    return jsonify({
+            elif not h:
+                result.append({
+                    "name": name,
+                    "status": "removed",
+                    "base": b,
+                    "head": None,
+                    "changes": []
+                })
+
+            else:
+                changes = []
+
+                if b["trigger_type"] != h["trigger_type"]:
+                    changes.append({
+                        "field": "Trigger Type",
+                        "base": b["trigger_type"],
+                        "head": h["trigger_type"]
+                    })
+
+                if b["trigger_freq"] != h["trigger_freq"]:
+                    changes.append({
+                        "field": "Trigger Frequency",
+                        "base": b["trigger_freq"] or "—",
+                        "head": h["trigger_freq"] or "—"
+                    })
+
+                if b["action_count"] != h["action_count"]:
+                    diff = h["action_count"] - b["action_count"]
+                    changes.append({
+                        "field": "Actions",
+                        "base": str(b["action_count"]),
+                        "head": f"{h['action_count']} ({'+' if diff > 0 else ''}{diff})"
+                    })
+
+                base_conns = set(b["connections"])
+                head_conns = set(h["connections"])
+
+                for c in head_conns - base_conns:
+                    changes.append({
+                        "field": "Connection Added",
+                        "base": "—",
+                        "head": c
+                    })
+
+                for c in base_conns - head_conns:
+                    changes.append({
+                        "field": "Connection Removed",
+                        "base": c,
+                        "head": "—"
+                    })
+
+                status = "modified" if changes else "unchanged"
+
+                result.append({
+                    "name": name,
+                    "status": status,
+                    "base": b,
+                    "head": h,
+                    "changes": changes
+                })
+
+        return jsonify({
             "flows": result,
             "summary": {
                 "total": len(all_flow_names),
