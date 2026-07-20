@@ -75,7 +75,11 @@ def compare_pr(db: sqlite3.Connection, pr_number: int) -> int:
     """, [(pr_number, app_name) + d for d in diffs])
     db.commit()
 
-    # ── Compare Controls ─────────────────────────────────────────────────────
+    _write_json_report(pr_number, diffs)
+
+    return len(diffs)
+
+# ── Compare Controls ─────────────────────────────────────────────────────
 
 def _compare_controls(base_ctrls, head_ctrls, diffs):
     for name in set(head_ctrls) - set(base_ctrls):
@@ -212,11 +216,6 @@ def _extract_flow_actions(actions, parent=None, depth=0):
 
     return result
 
-    # ── Write JSON report (like your original outputs/diff_report.json) ───
-    _write_json_report(pr_number, app_name, diffs)
-
-    logger.info("PR #%d: %d diffs found", pr_number, len(diffs))
-    return len(diffs)
 
 def _compare_flows(base_release_id, head_release_id, db, diffs):
 
