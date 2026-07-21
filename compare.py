@@ -75,7 +75,7 @@ def compare_pr(db: sqlite3.Connection, pr_number: int) -> int:
     """, [(pr_number, app_name) + d for d in diffs])
     db.commit()
 
-    _write_json_report(pr_number, diffs)
+    _write_json_report(pr_number, app_name, diffs)
 
     return len(diffs)
 

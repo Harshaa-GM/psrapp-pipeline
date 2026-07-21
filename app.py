@@ -4,10 +4,6 @@ Tabs: Upload | Diff Viewer | Flows | AI Chat
 Arun's requirement: upload ONE file → auto version → auto diff vs previous
 """
 
-from fileinput import filename
-from fileinput import filename
-from importlib.metadata import files
-
 from azure.storage.blob import BlobServiceClient
 import os, re, io, json, zipfile, urllib.request, urllib.error
 from flask import Flask, request, jsonify, render_template_string
@@ -63,6 +59,13 @@ def _build_msal_app():
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
+        # Auto-login local developer if Azure AD configurations are missing
+        if not AZURE_CLIENT_ID or not AZURE_CLIENT_SECRET or not AZURE_TENANT_ID:
+            if not session.get("user"):
+                session["user"] = {
+                    "name": "Local Developer",
+                    "preferred_username": "dev@localhost"
+                }
         if not session.get("user"):
             return redirect(url_for("login"))
         return f(*args, **kwargs)
@@ -290,69 +293,71 @@ def build_context():
 
 def answer_locally(question):
     db  = get_db()
-    q   = question.lower()
-    ver_match = re.search(r'v(?:ersion)?\s*#?(\d+)', q)
-    ver_num   = int(ver_match.group(1)) if ver_match else None
+    try:
+        q   = question.lower()
+        ver_match = re.search(r'v(?:ersion)?\s*#?(\d+)', q)
+        ver_num   = int(ver_match.group(1)) if ver_match else None
 
-    if any(w in q for w in ["flow", "flows", "automation"]):
-        rows = db.execute("SELECT * FROM flows").fetchall()
-        if not rows: return "No flows stored yet."
-        return f"{len(rows)} flows found:\n" + "\n".join(f"• {r['flow_name']} | {r['trigger_type']} | {r['trigger_freq']} | {r['action_count']} actions" for r in rows)
+        if any(w in q for w in ["flow", "flows", "automation"]):
+            rows = db.execute("SELECT * FROM flows").fetchall()
+            if not rows: return "No flows stored yet."
+            return f"{len(rows)} flows found:\n" + "\n".join(f"• {r['flow_name']} | {r['trigger_type']} | {r['trigger_freq']} | {r['action_count']} actions" for r in rows)
 
-    if any(w in q for w in ["changed","change","diff","what happened"]):
-        if ver_num:
-            diffs = db.execute("SELECT * FROM diffs WHERE pr_number=?", (ver_num,)).fetchall()
-            if not diffs: return f"No changes found for v{ver_num}."
-            added   = [d for d in diffs if d["diff_type"]=="control_added"]
-            removed = [d for d in diffs if d["diff_type"]=="control_removed"]
-            changed = [d for d in diffs if d["diff_type"]=="control_changed"]
-            parts = []
-            if added:   parts.append("✅ Added: "   + ", ".join(f"{d['entity_name']} ({d['head_value']})" for d in added))
-            if removed: parts.append("❌ Removed: " + ", ".join(f"{d['entity_name']} ({d['base_value']})" for d in removed))
-            if changed: parts.append("✏️ Changed: " + ", ".join(f"{d['entity_name']}.{d['field_name']}" for d in changed))
-            return f"v{ver_num} — {len(diffs)} change(s):\n" + "\n".join(parts)
-        diffs = db.execute("SELECT * FROM diffs").fetchall()
-        if not diffs: return "No diffs found yet."
-        s = {}
-        for d in diffs: s.setdefault(d["pr_number"],[]).append(d["diff_type"])
-        return "All changes:\n" + "\n".join(f"v{v}: {len(t)} change(s)" for v,t in s.items())
+        if any(w in q for w in ["changed","change","diff","what happened"]):
+            if ver_num:
+                diffs = db.execute("SELECT * FROM diffs WHERE pr_number=?", (ver_num,)).fetchall()
+                if not diffs: return f"No changes found for v{ver_num}."
+                added   = [d for d in diffs if d["diff_type"]=="control_added"]
+                removed = [d for d in diffs if d["diff_type"]=="control_removed"]
+                changed = [d for d in diffs if d["diff_type"]=="control_changed"]
+                parts = []
+                if added:   parts.append("✅ Added: "   + ", ".join(f"{d['entity_name']} ({d['head_value']})" for d in added))
+                if removed: parts.append("❌ Removed: " + ", ".join(f"{d['entity_name']} ({d['base_value']})" for d in removed))
+                if changed: parts.append("✏️ Changed: " + ", ".join(f"{d['entity_name']}.{d['field_name']}" for d in changed))
+                return f"v{ver_num} — {len(diffs)} change(s):\n" + "\n".join(parts)
+            diffs = db.execute("SELECT * FROM diffs").fetchall()
+            if not diffs: return "No diffs found yet."
+            s = {}
+            for d in diffs: s.setdefault(d["pr_number"],[]).append(d["diff_type"])
+            return "All changes:\n" + "\n".join(f"v{v}: {len(t)} change(s)" for v,t in s.items())
 
-    if any(w in q for w in ["added","new control"]):
-        rows = db.execute("SELECT * FROM diffs WHERE diff_type='control_added'").fetchall()
-        if not rows: return "No controls were added."
-        return "Added:\n" + "\n".join(f"• {r['entity_name']} ({r['head_value']}) v{r['pr_number']}" for r in rows)
+        if any(w in q for w in ["added","new control"]):
+            rows = db.execute("SELECT * FROM diffs WHERE diff_type='control_added'").fetchall()
+            if not rows: return "No controls were added."
+            return "Added:\n" + "\n".join(f"• {r['entity_name']} ({r['head_value']}) v{r['pr_number']}" for r in rows)
 
-    if any(w in q for w in ["removed","deleted"]):
-        rows = db.execute("SELECT * FROM diffs WHERE diff_type='control_removed'").fetchall()
-        if not rows: return "No controls were removed."
-        return "Removed:\n" + "\n".join(f"• {r['entity_name']} ({r['base_value']}) v{r['pr_number']}" for r in rows)
+        if any(w in q for w in ["removed","deleted"]):
+            rows = db.execute("SELECT * FROM diffs WHERE diff_type='control_removed'").fetchall()
+            if not rows: return "No controls were removed."
+            return "Removed:\n" + "\n".join(f"• {r['entity_name']} ({r['base_value']}) v{r['pr_number']}" for r in rows)
 
-    if any(w in q for w in ["latest","recent","last","current"]):
-        rel = db.execute("SELECT * FROM releases ORDER BY pr_number DESC LIMIT 1").fetchone()
-        a   = db.execute("SELECT * FROM apps ORDER BY last_saved_utc DESC LIMIT 1").fetchone()
-        if rel: return f"Latest: v{rel['pr_number']} '{rel['release_name']}' — last saved: {a['last_saved_utc'] if a else 'unknown'}"
-        return "No versions yet."
+        if any(w in q for w in ["latest","recent","last","current"]):
+            rel = db.execute("SELECT * FROM releases ORDER BY pr_number DESC LIMIT 1").fetchone()
+            a   = db.execute("SELECT * FROM apps ORDER BY last_saved_utc DESC LIMIT 1").fetchone()
+            if rel: return f"Latest: v{rel['pr_number']} '{rel['release_name']}' — last saved: {a['last_saved_utc'] if a else 'unknown'}"
+            return "No versions yet."
 
-    if "compare" in q:
-        nums = re.findall(r'\d+', q)
-        if len(nums) >= 2:
-            v1,v2 = int(nums[0]),int(nums[1])
-            d1 = db.execute("SELECT count(*) as c FROM diffs WHERE pr_number=?",(v1,)).fetchone()["c"]
-            d2 = db.execute("SELECT count(*) as c FROM diffs WHERE pr_number=?",(v2,)).fetchone()["c"]
-            return f"v{v1}: {d1} change(s)\nv{v2}: {d2} change(s)"
+        if "compare" in q:
+            nums = re.findall(r'\d+', q)
+            if len(nums) >= 2:
+                v1,v2 = int(nums[0]),int(nums[1])
+                d1 = db.execute("SELECT count(*) as c FROM diffs WHERE pr_number=?",(v1,)).fetchone()["c"]
+                d2 = db.execute("SELECT count(*) as c FROM diffs WHERE pr_number=?",(v2,)).fetchone()["c"]
+                return f"v{v1}: {d1} change(s)\nv{v2}: {d2} change(s)"
 
-    if any(w in q for w in ["list","all versions","history"]):
-        rows = db.execute("SELECT * FROM releases ORDER BY pr_number DESC").fetchall()
-        if not rows: return "No versions yet."
-        return "All versions:\n" + "\n".join(f"• v{r['pr_number']} — {r['release_name']} ({r['created_at']})" for r in rows)
+        if any(w in q for w in ["list","all versions","history"]):
+            rows = db.execute("SELECT * FROM releases ORDER BY pr_number DESC").fetchall()
+            if not rows: return "No versions yet."
+            return "All versions:\n" + "\n".join(f"• v{r['pr_number']} — {r['release_name']} ({r['created_at']})" for r in rows)
 
-    if any(w in q for w in ["screen","screens"]):
-        rows = db.execute("SELECT DISTINCT name FROM screens").fetchall()
-        if not rows: return "No screens found."
-        return "Screens:\n" + "\n".join(f"• {r['name']}" for r in rows)
+        if any(w in q for w in ["screen","screens"]):
+            rows = db.execute("SELECT DISTINCT name FROM screens").fetchall()
+            if not rows: return "No screens found."
+            return "Screens:\n" + "\n".join(f"• {r['name']}" for r in rows)
 
-    db.close()
-    return "Try: 'What changed in v2?', 'What flows exist?', 'List all versions', 'What was added?'"
+        return "Try: 'What changed in v2?', 'What flows exist?', 'List all versions', 'What was added?'"
+    finally:
+        db.close()
 
 
 def ask_grok(question, context):
@@ -404,40 +409,38 @@ If the answer is not present in the context, say:
 def process_upload(files, label=None):
     """
     Arun's flow:
-      1. Upload ONE solution → auto-assign version number (latest)
+      1. For EACH uploaded file → auto-assign version number
       2. Store as 'head'
       3. Promote previous head to 'base'
       4. Auto-diff latest vs previous
     """
-    
-
     db = get_db()
-
-    all_results = []
+    results_list = []
 
     for file in files:
-
         new_version = _get_next_version(db)
         versions = _get_latest_two_versions(db)
 
         results = {
-          "msapp": None,
-          "flows": [],
-          "errors": [],
-          "version": new_version
+            "msapp": None,
+            "flows": [],
+            "errors": [],
+            "version": new_version
         }
 
-    # Store new upload as HEAD
-    # Use uploaded filename as label if no label provided
-    if not label and files:
-      label = files[0].filename.replace(".zip", "").replace(".msapp", "")
-      release_id = _create_release(
-          db,
-          new_version,
-          "head",
-          label or f"v{new_version}"
-      )
-      for file in files:
+        current_label = label
+        if not current_label:
+            current_label = file.filename.replace(".zip", "").replace(".msapp", "")
+        elif len(files) > 1:
+            current_label = f"{label} ({file.filename})"
+
+        release_id = _create_release(
+            db,
+            new_version,
+            "head",
+            current_label or f"v{new_version}"
+        )
+
         filename = file.filename
         data     = file.read()
         try:
@@ -468,62 +471,63 @@ def process_upload(files, label=None):
         except Exception as e:
             results["errors"].append(f"{filename}: {str(e)}")
 
-    diff_count   = 0
-    prev_version  = versions[0] if versions else None
+        diff_count   = 0
+        prev_version  = versions[0] if versions else None
 
-    if prev_version:
-        # Create a base release pointing to previous version's apps
-        base_release_id = _create_release(db, new_version, "base", f"v{prev_version}-as-base")
-        prev_rel = db.execute(
-            "SELECT id FROM releases WHERE pr_number=? AND branch_type='head' ORDER BY created_at DESC LIMIT 1",
-            (prev_version,)
-        ).fetchone()
-        if prev_rel:
-            # Copy apps + controls from previous head into new base release
-            prev_apps = db.execute("SELECT * FROM apps WHERE release_id=?", (prev_rel["id"],)).fetchall()
-            for pa in prev_apps:
-                cur = db.execute("""
-                    INSERT INTO apps (release_id, blob_path, app_name, app_id, doc_version,
-                        last_saved_utc, layout_width, layout_height, orientation,
-                        app_type, parser_error_count, binding_error_count)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-                """, (base_release_id, pa["blob_path"], pa["app_name"], pa["app_id"],
-                      pa["doc_version"], pa["last_saved_utc"], pa["layout_width"],
-                      pa["layout_height"], pa["orientation"], pa["app_type"],
-                      pa["parser_error_count"], pa["binding_error_count"]))
-                new_app_id = cur.lastrowid
-                # Copy controls
-                prev_controls = db.execute("SELECT * FROM controls WHERE app_id=?", (pa["id"],)).fetchall()
-                for c in prev_controls:
-                    db.execute("""
-                        INSERT INTO controls (app_id, screen_name, control_name, control_type,
-                            parent_name, x, y, width, height, visible, text_value, on_select)
+        if prev_version:
+            # Create a base release pointing to previous version's apps
+            base_release_id = _create_release(db, new_version, "base", f"v{prev_version}-as-base")
+            prev_rel = db.execute(
+                "SELECT id FROM releases WHERE pr_number=? AND branch_type='head' ORDER BY created_at DESC LIMIT 1",
+                (prev_version,)
+            ).fetchone()
+            if prev_rel:
+                # Copy apps + controls from previous head into new base release
+                prev_apps = db.execute("SELECT * FROM apps WHERE release_id=?", (prev_rel["id"],)).fetchall()
+                for pa in prev_apps:
+                    cur = db.execute("""
+                        INSERT INTO apps (release_id, blob_path, app_name, app_id, doc_version,
+                            last_saved_utc, layout_width, layout_height, orientation,
+                            app_type, parser_error_count, binding_error_count)
                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-                    """, (new_app_id, c["screen_name"], c["control_name"], c["control_type"],
-                          c["parent_name"], c["x"], c["y"], c["width"], c["height"],
-                          c["visible"], c["text_value"], c["on_select"]))
-                # Copy data sources
-                prev_ds = db.execute("SELECT * FROM data_sources WHERE app_id=?", (pa["id"],)).fetchall()
-                for ds in prev_ds:
-                    db.execute("""
-                        INSERT INTO data_sources (app_id, name, type, schema, is_sample, is_writable)
-                        VALUES (?,?,?,?,?,?)
-                    """, (new_app_id, ds["name"], ds["type"], ds["schema"], ds["is_sample"], ds["is_writable"]))
-                # Copy feature flags
-                prev_flags = db.execute("SELECT * FROM feature_flags WHERE app_id=?", (pa["id"],)).fetchall()
-                for ff in prev_flags:
-                    db.execute("INSERT INTO feature_flags (app_id, flag, enabled) VALUES (?,?,?)",
-                               (new_app_id, ff["flag"], ff["enabled"]))
-        db.commit()
-        diff_count = compare_pr(db, new_version)
-        results["prev_version"] = prev_version
-    else:
-        results["prev_version"] = None
+                    """, (base_release_id, pa["blob_path"], pa["app_name"], pa["app_id"],
+                          pa["doc_version"], pa["last_saved_utc"], pa["layout_width"],
+                          pa["layout_height"], pa["orientation"], pa["app_type"],
+                          pa["parser_error_count"], pa["binding_error_count"]))
+                    new_app_id = cur.lastrowid
+                    # Copy controls
+                    prev_controls = db.execute("SELECT * FROM controls WHERE app_id=?", (pa["id"],)).fetchall()
+                    for c in prev_controls:
+                        db.execute("""
+                            INSERT INTO controls (app_id, screen_name, control_name, control_type,
+                                parent_name, x, y, width, height, visible, text_value, on_select)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                        """, (new_app_id, c["screen_name"], c["control_name"], c["control_type"],
+                              c["parent_name"], c["x"], c["y"], c["width"], c["height"],
+                              c["visible"], c["text_value"], c["on_select"]))
+                    # Copy data sources
+                    prev_ds = db.execute("SELECT * FROM data_sources WHERE app_id=?", (pa["id"],)).fetchall()
+                    for ds in prev_ds:
+                        db.execute("""
+                            INSERT INTO data_sources (app_id, name, type, schema, is_sample, is_writable)
+                            VALUES (?,?,?,?,?,?)
+                        """, (new_app_id, ds["name"], ds["type"], ds["schema"], ds["is_sample"], ds["is_writable"]))
+                    # Copy feature flags
+                    prev_flags = db.execute("SELECT * FROM feature_flags WHERE app_id=?", (pa["id"],)).fetchall()
+                    for ff in prev_flags:
+                        db.execute("INSERT INTO feature_flags (app_id, flag, enabled) VALUES (?,?,?)",
+                                   (new_app_id, ff["flag"], ff["enabled"]))
+            db.commit()
+            diff_count = compare_pr(db, new_version)
+            results["prev_version"] = prev_version
+        else:
+            results["prev_version"] = None
 
         results["diff_count"] = diff_count
-        all_results.append(results)
+        results_list.append(results)
+
     db.close()
-    return all_results
+    return results_list
 
 
 # ── HTML ──────────────────────────────────────────────────────────────────────
@@ -719,6 +723,10 @@ HTML = """<!DOCTYPE html>
 
       <div class="result-box" id="result-box"></div>
     </div>
+    <div class="version-history" style="margin-top: 20px">
+      <h3>Recent Uploads</h3>
+      <div id="version-list"><p style="color:#444;font-size:12px">No versions uploaded yet.</p></div>
+    </div>
   </div>
 </div>
 
@@ -758,7 +766,25 @@ HTML = """<!DOCTYPE html>
 <!-- ══ FLOWS ═════════════════════════════════════════════════════════════════ -->
 <div class="panel" id="panel-flows">
   <div class="diff-panel">
-    <div class="diff-toolbar" style="flex-direction:column;align-items:flex-start;gap:16px;padding:20px 24px">
+    <!-- Option A: Compare from Solution History -->
+    <div class="diff-toolbar" style="padding:14px 24px; border-bottom: 1px solid #1e1e1e; background: #111; display:flex; align-items:center; gap:12px; flex-wrap:wrap">
+      <span style="font-size:12px; font-weight:600; color:#fff; margin-right:8px">Compare History:</span>
+      <label style="font-size:12px; color:#666">Base</label>
+      <select class="pr-sel" id="pr-select-flows-base">
+        <option value="">-- Base version --</option>
+      </select>
+      <span style="color:#444; font-size:16px; margin:0 6px">→</span>
+      <label style="font-size:12px; color:#666">Head</label>
+      <select class="pr-sel" id="pr-select-flows-head">
+        <option value="">-- Head version --</option>
+      </select>
+      <button class="load-btn" onclick="loadFlowsDiffFromDb()">Compare</button>
+      <span id="flows-db-subtitle" style="font-size:11px; color:#555; margin-left:8px"></span>
+    </div>
+
+    <!-- Option B: Compare Local Files -->
+    <div class="diff-toolbar" style="flex-direction:column;align-items:flex-start;gap:16px;padding:20px 24px;background:#141414;border-bottom:1px solid #222">
+      <div style="font-size:12px; font-weight:600; color:#fff">Compare Local Files:</div>
       <div style="display:flex;gap:16px;width:100%;flex-wrap:wrap">
         <div style="flex:1;min-width:200px">
           <div style="font-size:11px;color:#666;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Base Solution</div>
@@ -783,8 +809,8 @@ HTML = """<!DOCTYPE html>
         <label for="show-unchanged" style="font-size:12px;color:#666;cursor:pointer">Show unchanged flows</label>
       </div>
     </div>
-    <div class="flows-content" id="flows-content">
-      <div class="empty-diff"><p>Upload base and head solution files to compare flows.</p></div>
+    <div class="flows-content" id="flows-content" style="flex:1; overflow-y:auto">
+      <div class="empty-diff"><p>Select versions from history above or upload local solutions to compare workflows.</p></div>
     </div>
   </div>
 </div>
@@ -888,20 +914,24 @@ async function submitUpload() {
 
   try {
     const r    = await fetch('/upload', {method:'POST', body:fd});
-    const data = await r.json();
+    const results = await r.json();
     let msg = '';
-    msg += `<div class="info">📌 Saved as <strong>v${data.version}</strong>${label ? ' — '+label : ''}</div>`;
-    if (data.msapp)  msg += `<div class="success">✅ App parsed: ${data.msapp}</div>`;
-    if (data.flows?.length) msg += `<div class="success">⚡ ${data.flows.length} flow(s) stored</div>`;
-    if (data.prev_version) {
-      if (data.diff_count > 0)
-        msg += `<div class="info">🔀 ${data.diff_count} diff(s) vs v${data.prev_version} — check Diff Viewer</div>`;
-      else
-        msg += `<div class="success">✅ No changes vs v${data.prev_version}</div>`;
-    } else {
-      msg += `<div class="info">ℹ️ First version uploaded — upload another to see diffs</div>`;
-    }
-    if (data.errors?.length) msg += data.errors.map(e=>`<div class="err">⚠️ ${e}</div>`).join('');
+    
+    results.forEach(data => {
+        msg += `<div class="info">📌 Saved as <strong>v${data.version}</strong>${label ? ' — '+label : ''}</div>`;
+        if (data.msapp)  msg += `<div class="success">✅ App parsed: ${data.msapp}</div>`;
+        if (data.flows?.length) msg += `<div class="success">⚡ ${data.flows.length} flow(s) stored</div>`;
+        if (data.prev_version) {
+          if (data.diff_count > 0)
+            msg += `<div class="info">🔀 ${data.diff_count} diff(s) vs v${data.prev_version} — check Diff Viewer</div>`;
+          else
+            msg += `<div class="success">✅ No changes vs v${data.prev_version}</div>`;
+        } else {
+          msg += `<div class="info">ℹ️ First version uploaded — upload another to see diffs</div>`;
+        }
+        if (data.errors?.length) msg += data.errors.map(e=>`<div class="err">⚠️ ${e}</div>`).join('');
+    });
+    
     showResult(msg);
     selectedFiles = [];
     document.getElementById('ver-label').value = '';
@@ -909,11 +939,30 @@ async function submitUpload() {
     loadVersionLists();
     loadHistory();
 
-    async function loadHistory() {
+    const lastResult = results[results.length - 1];
+    // Auto-jump to diff viewer if diffs found in the last uploaded file
+    if (lastResult && lastResult.diff_count > 0 && lastResult.prev_version) {
+      setTimeout(() => {
+        switchTab('diff');
+        document.getElementById('pr-select-base').value = lastResult.prev_version;
+        document.getElementById('pr-select-head').value = lastResult.version;
+        loadDiff();
+      }, 1200);
+    }
+  } catch(e) {
+    showResult(`<div class="err">Error: ${e}</div>`);
+  }
+
+  btn.disabled  = false;
+  btn.innerText = '⚡ Upload';
+}
+
+async function loadHistory() {
   const res = await fetch('/versions');
   const data = await res.json();
   const versions = data.versions;
   const list = document.getElementById('history-list');
+  if (!list) return;
   if (!versions.length) {
     list.innerHTML = '<p style="color:#444;font-size:12px">No solutions uploaded yet.</p>';
     return;
@@ -925,23 +974,6 @@ async function submitUpload() {
       <span class="ver-date">${v.created_at ? v.created_at.split('T')[0] : ''}</span>
       <span style="font-size:11px;color:#555;margin-left:auto">Click to diff →</span>
     </div>`).join('');
-}
-
-    // Auto-jump to diff viewer if diffs found
-    if (data.diff_count > 0 && data.prev_version) {
-      setTimeout(() => {
-        switchTab('diff');
-        document.getElementById('pr-select-base').value = data.prev_version;
-        document.getElementById('pr-select-head').value = data.version;
-        loadDiff();
-      }, 1200);
-    }
-  } catch(e) {
-    showResult(`<div class="err">Error: ${e}</div>`);
-  }
-
-  btn.disabled  = false;
-  btn.innerText = '⚡ Upload';
 }
 
 function showResult(html) {
@@ -959,8 +991,7 @@ async function loadVersionLists() {
   function populateSel(id, curVal) {
     const sel = document.getElementById(id);
     if (!sel) return;
-    const placeholder = id === 'pr-select-flows' ? '-- Choose a version --' :
-                        id === 'pr-select-base'  ? '-- Base version --' : '-- Head version --';
+    const placeholder = id.includes('base') ? '-- Base version --' : '-- Head version --';
     sel.innerHTML = `<option value="">${placeholder}</option>`;
     versions.forEach(v => {
       const o = document.createElement('option');
@@ -973,13 +1004,17 @@ async function loadVersionLists() {
 
   const curBase  = document.getElementById('pr-select-base')?.value;
   const curHead  = document.getElementById('pr-select-head')?.value;
-  const curFlows = document.getElementById('pr-select-flows')?.value;
+  const curFlowsBase = document.getElementById('pr-select-flows-base')?.value;
+  const curFlowsHead = document.getElementById('pr-select-flows-head')?.value;
+  
   populateSel('pr-select-base',  curBase);
   populateSel('pr-select-head',  curHead);
-  populateSel('pr-select-flows', curFlows);
+  populateSel('pr-select-flows-base', curFlowsBase);
+  populateSel('pr-select-flows-head', curFlowsHead);
 
   // Version history list on Upload tab
   const list = document.getElementById('version-list');
+  if (!list) return;
   if (!versions.length) {
     list.innerHTML = '<p style="color:#444;font-size:12px">No versions uploaded yet.</p>';
     return;
@@ -994,7 +1029,6 @@ async function loadVersionLists() {
 
 function jumpToDiff(i, pr, versions) {
   switchTab('diff');
-  // Set head = this version, base = previous version (if exists)
   document.getElementById('pr-select-head').value = pr;
   const prevPr = versions[i+1] ? versions[i+1].pr_number : '';
   document.getElementById('pr-select-base').value = prevPr;
@@ -1093,6 +1127,33 @@ function handleFlowFile(side, input) {
     document.getElementById('head-drop').classList.add('has-file');
   }
   document.getElementById('compare-flows-btn').disabled = !(baseFlowFile && headFlowFile);
+}
+
+async function loadFlowsDiffFromDb() {
+  const base = document.getElementById('pr-select-flows-base').value;
+  const head = document.getElementById('pr-select-flows-head').value;
+  if (!base || !head) {
+    document.getElementById('flows-content').innerHTML =
+      '<div class="empty-diff"><p>Select both a Base and Head version to compare.</p></div>';
+    return;
+  }
+  if (base === head) {
+    document.getElementById('flows-content').innerHTML =
+      '<div class="empty-diff"><p>Base and Head must be different versions.</p></div>';
+    return;
+  }
+  document.getElementById('flows-content').innerHTML =
+    '<div class="empty-diff"><p style="color:#555">Comparing flows from database...</p></div>';
+  
+  try {
+    const res = await fetch(`/flows/compare?base=${base}&head=${head}`);
+    const data = await res.json();
+    flowsData = data.flows;
+    document.getElementById('flows-db-subtitle').innerText = `v${base} → v${head}`;
+    renderFlowCompare(data);
+  } catch(e) {
+    document.getElementById('flows-content').innerHTML = `<div class="empty-diff"><p style="color:#ef4444">Error: ${e}</p></div>`;
+  }
 }
 
 async function compareFlows() {
@@ -1280,55 +1341,97 @@ def diff_compare():
 def flows(pr_number):
     return jsonify(get_flows_data(pr_number))
 
-@app.route("/flows/compare", methods=["POST"])
+@app.route("/flows/compare", methods=["GET", "POST"])
 @login_required
 def flows_compare():
-    base_file = request.files.get("base")
-    head_file = request.files.get("head")
-    
-    if not base_file or not head_file:
-        return jsonify({"error": "Both base and head files are required"}), 400
-
-    def extract_flows(file):
-        flows = {}
-        data = file.read()
+    if request.method == "GET":
+        base = request.args.get("base", type=int)
+        head = request.args.get("head", type=int)
+        if not base or not head:
+            return jsonify({"error": "base and head version numbers are required"}), 400
+        
+        db = get_db()
         try:
-            with zipfile.ZipFile(io.BytesIO(data)) as zf:
-                for fe in [f for f in zf.namelist() if "Workflows/" in f and f.endswith(".json")]:
+            def _get_release_flows(ver):
+                rel = db.execute(
+                    "SELECT id FROM releases WHERE pr_number=? AND branch_type='head' ORDER BY created_at DESC LIMIT 1",
+                    (ver,)
+                ).fetchone()
+                if not rel:
+                    return {}
+                rows = db.execute(
+                    "SELECT flow_name, trigger_type, trigger_freq, action_count, connections, raw_json FROM flows WHERE release_id=?",
+                    (rel["id"],)
+                ).fetchall()
+                
+                flows = {}
+                for r in rows:
                     try:
-                        flow_data = json.loads(zf.read(fe).decode("utf-8-sig"))
-                        flow_name = re.sub(
-                            r'-[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}$',
-                            '', fe.split("/")[-1].replace(".json", ""),
-                            flags=re.IGNORECASE
-                        )
-                        # Extract trigger info
-                        trigger = flow_data.get("properties", {}).get("definition", {}).get("triggers", {})
-                        trigger_type = list(trigger.keys())[0] if trigger else "Unknown"
-                        trigger_freq = trigger.get(trigger_type, {}).get("recurrence", {}).get("frequency", "")
-                        
-                        # Extract actions
-                        actions = flow_data.get("properties", {}).get("definition", {}).get("actions", {})
-                        action_count = len(actions)
-                        
-                        # Extract connections
-                        connections = list(flow_data.get("properties", {}).get("connectionReferences", {}).keys())
-                        
-                        flows[flow_name] = {
-                            "trigger_type": trigger_type,
-                            "trigger_freq": trigger_freq,
-                            "action_count": action_count,
-                            "connections": connections
+                        flow_data = json.loads(r["raw_json"])
+                        flows[r["flow_name"]] = {
+                            "trigger_type": r["trigger_type"] or "Unknown",
+                            "trigger_freq": r["trigger_freq"] or "",
+                            "action_count": r["action_count"] or 0,
+                            "connections": json.loads(r["connections"] or "[]"),
+                            "raw_json": flow_data
                         }
                     except Exception:
                         pass
-        except Exception as e:
-            pass
-        return flows
+                return flows
 
-    base_flows = extract_flows(base_file)
-    head_flows = extract_flows(head_file)
+            base_flows = _get_release_flows(base)
+            head_flows = _get_release_flows(head)
+        finally:
+            db.close()
+    else:
+        # POST: files upload
+        base_file = request.files.get("base")
+        head_file = request.files.get("head")
+        
+        if not base_file or not head_file:
+            return jsonify({"error": "Both base and head files are required"}), 400
 
+        def extract_flows(file):
+            flows = {}
+            data = file.read()
+            try:
+                with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                    for fe in [f for f in zf.namelist() if "Workflows/" in f and f.endswith(".json")]:
+                        try:
+                            flow_data = json.loads(zf.read(fe).decode("utf-8-sig"))
+                            flow_name = re.sub(
+                                r'-[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}$',
+                                '', fe.split("/")[-1].replace(".json", ""),
+                                flags=re.IGNORECASE
+                            )
+                            # Extract trigger info
+                            trigger = flow_data.get("properties", {}).get("definition", {}).get("triggers", {})
+                            trigger_type = list(trigger.keys())[0] if trigger else "Unknown"
+                            trigger_freq = trigger.get(trigger_type, {}).get("recurrence", {}).get("frequency", "")
+                            
+                            # Extract actions
+                            actions = flow_data.get("properties", {}).get("definition", {}).get("actions", {})
+                            action_count = len(actions)
+                            
+                            # Extract connections
+                            connections = list(flow_data.get("properties", {}).get("connectionReferences", {}).keys())
+                            
+                            flows[flow_name] = {
+                                "trigger_type": trigger_type,
+                                "trigger_freq": trigger_freq,
+                                "action_count": action_count,
+                                "connections": connections
+                            }
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+            return flows
+
+        base_flows = extract_flows(base_file)
+        head_flows = extract_flows(head_file)
+
+    # Common comparison logic
     all_flows = set(list(base_flows.keys()) + list(head_flows.keys()))
     result = []
 
