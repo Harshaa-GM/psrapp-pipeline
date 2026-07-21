@@ -298,11 +298,73 @@ def answer_locally(question):
         ver_match = re.search(r'v(?:ersion)?\s*#?(\d+)', q)
         ver_num   = int(ver_match.group(1)) if ver_match else None
 
-        if any(w in q for w in ["flow", "flows", "automation"]):
-            rows = db.execute("SELECT * FROM flows").fetchall()
-            if not rows: return "No flows stored yet."
-            return f"{len(rows)} flows found:\n" + "\n".join(f"• {r['flow_name']} | {r['trigger_type']} | {r['trigger_freq']} | {r['action_count']} actions" for r in rows)
+        # ── 1. Specific Flow Search by Name ──────────────────────────────────
+        flow_rows = db.execute("SELECT * FROM flows").fetchall()
+        if flow_rows:
+            for r in flow_rows:
+                fname = r["flow_name"]
+                if fname.lower() in q or fname.lower().replace(" ", "") in q.replace(" ", ""):
+                    freq_str = f"\n• Recurrence Frequency: {r['trigger_freq']}" if r['trigger_freq'] else ""
+                    conns = json.loads(r['connections']) if r['connections'] else []
+                    conn_str = f"\n• Connections: {', '.join(conns)}" if conns else "\n• Connections: None"
+                    return f"⚡ Flow Details: {fname}\n• Trigger Type: {r['trigger_type'] or 'Unknown'}{freq_str}\n• Total Actions: {r['action_count']} actions{conn_str}"
 
+        # ── 2. Flow Service / Connection Filtering ───────────────────────────
+        service_keywords = ["sharepoint", "dataverse", "excel", "deltek", "sql", "teams", "outlook", "http", "webhook"]
+        found_services = [s for s in service_keywords if s in q]
+        if found_services and any(w in q for w in ["flow", "flows", "connect", "connected", "using"]):
+            matching = []
+            for r in flow_rows:
+                conns_str = (r["connections"] or "").lower()
+                fname = (r["flow_name"] or "").lower()
+                if any(s in conns_str or s in fname for s in found_services):
+                    matching.append(r)
+            service_names = ", ".join(s.title() for s in found_services)
+            if not matching:
+                return f"No flows found connected to {service_names}."
+            return f"{len(matching)} flow(s) connected to {service_names}:\n" + "\n".join(
+                f"• {r['flow_name']} | Trigger: {r['trigger_type'] or 'Unknown'} | {r['action_count']} actions" for r in matching
+            )
+
+        # ── 3. Flow Action Count Aggregations (Most / Max Actions) ───────────
+        if any(w in q for w in ["most", "highest", "largest", "max"]) and "action" in q:
+            r = db.execute("SELECT * FROM flows ORDER BY action_count DESC LIMIT 1").fetchone()
+            if r:
+                return f"⚡ Flow with most actions: {r['flow_name']}\n• Actions: {r['action_count']} actions\n• Trigger: {r['trigger_type'] or 'Unknown'}\n• Frequency: {r['trigger_freq'] or 'N/A'}"
+
+        # ── 4. Trigger / Frequency Queries for Unmatched Flow Names ─────────
+        if ("trigger" in q or "triggers" in q or "frequency" in q or "how often" in q) and any(w in q for w in ["flow", "flows", "run"]):
+            quoted = re.findall(r"['\"]([^'\"]+)['\"]", question)
+            search_terms = quoted if quoted else [w for w in re.findall(r'[a-zA-Z0-9]+', question) if len(w) > 4 and w.lower() not in ["flow", "flows", "trigger", "triggers", "often", "about", "which", "what", "where", "does", "run", "runs"]]
+            
+            if search_terms:
+                target = search_terms[0].lower()
+                matches = [r for r in flow_rows if target in r["flow_name"].lower()]
+                if matches:
+                    r = matches[0]
+                    freq_str = f" | Frequency: {r['trigger_freq']}" if r['trigger_freq'] else ""
+                    return f"⚡ Flow '{r['flow_name']}':\n• Trigger: {r['trigger_type'] or 'Unknown'}{freq_str}\n• Actions: {r['action_count']} actions"
+                return f"Could not find a flow matching '{search_terms[0]}' in the uploaded solution."
+
+        # ── 5. General Flow Listing ──────────────────────────────────────────
+        if any(w in q for w in ["flow", "flows", "automation"]):
+            if not flow_rows: return "No flows stored yet."
+            return f"{len(flow_rows)} flows found in solution:\n" + "\n".join(f"• {r['flow_name']} | Trigger: {r['trigger_type']} | {r['action_count']} actions" for r in flow_rows)
+
+        # ── 6. Data Sources Queries ──────────────────────────────────────────
+        if any(w in q for w in ["data source", "datasource", "datasources", "data sources", "connected tables", "tables"]):
+            rows = db.execute("SELECT * FROM data_sources").fetchall()
+            if not rows: return "No data sources found in the uploaded solution."
+            return f"{len(rows)} Data Source(s) found:\n" + "\n".join(f"• {r['name']} (Type: {r['type'] or 'Custom'})" for r in rows)
+
+        # ── 7. Controls by Type (Buttons, Labels, Galleries, Inputs) ─────────
+        for ctrl_kw in ["button", "label", "gallery", "input", "text", "dropdown", "icon", "image", "form"]:
+            if ctrl_kw in q and any(w in q for w in ["control", "controls", "list", "show", "count", "find"]):
+                rows = db.execute("SELECT * FROM controls WHERE LOWER(control_type) LIKE ?", (f"%{ctrl_kw}%",)).fetchall()
+                if not rows: return f"No controls of type '{ctrl_kw}' found."
+                return f"{len(rows)} '{ctrl_kw}' control(s) found:\n" + "\n".join(f"• {r['control_name']} (Screen: {r['screen_name']})" for r in rows[:15]) + (f"\n...and {len(rows)-15} more." if len(rows)>15 else "")
+
+        # ── 8. Diffs and Change History ──────────────────────────────────────
         if any(w in q for w in ["changed","change","diff","what happened"]):
             if ver_num:
                 diffs = db.execute("SELECT * FROM diffs WHERE pr_number=?", (ver_num,)).fetchall()
@@ -355,7 +417,7 @@ def answer_locally(question):
             if not rows: return "No screens found."
             return "Screens:\n" + "\n".join(f"• {r['name']}" for r in rows)
 
-        return "Try: 'What changed in v2?', 'What flows exist?', 'List all versions', 'What was added?'"
+        return "Try asking: 'Which flows are connected to SharePoint?', 'What triggers PSRTimesheetApprovalSynctoDeltek?', 'Which flow has the most actions?', 'What data sources are connected?', or 'What changed in v2?'"
     finally:
         db.close()
 
