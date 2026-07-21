@@ -188,6 +188,10 @@ def parse_flow_and_store(
 ) -> int:
     """Parse a Power Automate flow JSON and store into SQLite."""
     props   = flow_json.get("properties", {})
+    displayName = props.get("displayName")
+    if displayName:
+        flow_name = displayName
+
     defn    = props.get("definition", {})
     triggers = defn.get("triggers", {})
     actions  = defn.get("actions", {})
@@ -222,7 +226,7 @@ def parse_flow_and_store(
         flow_name,
         trigger_type,
         trigger_freq,
-        len(actions),
+        len(flattened_actions),
         json.dumps(conn_names),
         json.dumps(flow_json),
     ))

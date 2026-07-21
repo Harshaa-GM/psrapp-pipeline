@@ -1270,6 +1270,23 @@ function toggleFlowBody(id) {
   arrow.innerText = body.classList.contains('open') ? '▲' : '▼';
 }
 
+function friendlyActionType(type) {
+  if (!type) return '⚙️ Action';
+  if (type === 'OpenApiConnection') return '🔌 Connector Action';
+  if (type === 'OpenApiConnectionWebhook') return '⚡ Webhook Action';
+  if (type === 'Request') return '📥 HTTP Request';
+  if (type === 'Response') return '📤 HTTP Response';
+  if (type === 'Recurrence') return '⏰ Scheduled Recurrence';
+  if (type === 'If') return '🔀 Condition (If/Else)';
+  if (type === 'Foreach') return '🔄 Apply to Each Loop';
+  if (type === 'Scope') return '📦 Scope Block';
+  if (type === 'Compose') return '📝 Compose Variable';
+  if (type === 'Table' || type === 'Select') return '📊 Data Table';
+  if (type === 'Until') return '🔁 Repeat Until';
+  if (type === 'Switch') return '🔀 Switch Case';
+  return `⚙️ ${type}`;
+}
+
 function renderFlowCompare(data) {
   const s = data.summary;
   let html = `<div class="summary-cards" style="padding:20px 24px 0">
@@ -1278,10 +1295,7 @@ function renderFlowCompare(data) {
     <div class="card removed"><div class="num">${s.removed}</div><div class="lbl">Removed</div></div>
     <div class="card changed"><div class="num">${s.modified}</div><div class="lbl">Modified</div></div>
   </div>
-  <div style="padding:16px 24px">
-    <div style="font-size:11px;color:#555;display:grid;grid-template-columns:120px 1fr 1fr;gap:12px;padding:8px 16px;margin-bottom:4px">
-      <span>FIELD</span><span>PREVIOUS (BASE)</span><span>THIS VERSION (HEAD)</span>
-    </div>`;
+  <div style="padding:16px 24px">`;
 
   data.flows.forEach((f, i) => {
     const statusBadge = 
@@ -1294,36 +1308,91 @@ function renderFlowCompare(data) {
     const unchangedClass = f.status === 'unchanged' ? 'flow-unchanged' : '';
     const unchangedStyle = f.status === 'unchanged' ? 'display:none' : '';
 
-    html += `<div class="flow-compare-card ${unchangedClass}" style="${unchangedStyle}">
-      <div class="flow-compare-header" onclick="${hasDetails ? `toggleFlowBody(${i})` : ''}">
-        <span style="flex:1;font-size:13px;font-weight:500;color:#e8e8e8">${f.name}</span>
+    html += `<div class="flow-compare-card ${unchangedClass}" style="${unchangedStyle};margin-bottom:16px">
+      <div class="flow-compare-header" onclick="${hasDetails ? `toggleFlowBody(${i})` : ''}" style="cursor:pointer;padding:12px 16px;background:#181818;border-radius:8px">
+        <span style="flex:1;font-size:14px;font-weight:600;color:#f3f4f6">${f.name}</span>
         ${statusBadge}
-        ${hasDetails ? `<span id="arrow-${i}" style="color:#555;font-size:11px;margin-left:8px">▼</span>` : ''}
+        ${hasDetails ? `<span id="arrow-${i}" style="color:#888;font-size:12px;margin-left:12px">▼</span>` : ''}
       </div>`;
 
-    if (f.status === 'modified' && f.changes?.length) {
-      html += `<div class="flow-compare-body" id="body-${i}">`;
+    html += `<div class="flow-compare-body" id="body-${i}">`;
+
+    // 1. High Level Change Summary Rows
+    if (f.changes && f.changes.length) {
+      html += `<div style="margin-bottom:16px;padding:12px;background:#111;border:1px solid #222;border-radius:6px">
+        <div style="font-size:11px;font-weight:600;color:#3b82f6;margin-bottom:8px;text-transform:uppercase">📋 Change Highlights (${f.changes.length})</div>`;
       f.changes.forEach(c => {
-        html += `<div class="flow-change-row">
-          <span class="flow-change-label">${c.field}</span>
-          <span class="flow-change-base">${c.base || '—'}</span>
-          <span class="flow-change-head">${c.head || '—'}</span>
+        html += `<div class="flow-change-row" style="display:grid;grid-template-columns:220px 1fr 1fr;gap:12px;padding:6px 0;border-bottom:1px solid #1a1a1a;font-size:12px">
+          <span style="color:#aaa;font-weight:500">${c.field}</span>
+          <span style="color:#ef4444;word-break:break-all">${c.base || '—'}</span>
+          <span style="color:#22c55e;word-break:break-all">${c.head || '—'}</span>
         </div>`;
       });
       html += `</div>`;
-    } else if (f.status === 'added' && f.head) {
-      html += `<div class="flow-compare-body" id="body-${i}">
-        <div class="flow-change-row"><span class="flow-change-label">Trigger</span><span class="flow-change-base">—</span><span class="flow-change-head">${f.head.trigger_type || '—'}</span></div>
-        <div class="flow-change-row"><span class="flow-change-label">Actions</span><span class="flow-change-base">—</span><span class="flow-change-head">${f.head.action_count} actions</span></div>
-      </div>`;
-    } else if (f.status === 'removed' && f.base) {
-      html += `<div class="flow-compare-body" id="body-${i}">
-        <div class="flow-change-row"><span class="flow-change-label">Trigger</span><span class="flow-change-base">${f.base.trigger_type || '—'}</span><span class="flow-change-head">—</span></div>
-        <div class="flow-change-row"><span class="flow-change-label">Actions</span><span class="flow-change-base">${f.base.action_count} actions</span><span class="flow-change-head">—</span></div>
-      </div>`;
     }
 
-    html += `</div>`;
+    // 2. Side-by-Side Action Trees (LEFT = BASE, RIGHT = HEAD)
+    const baseTree = f.base?.actions_tree || {};
+    const headTree = f.head?.actions_tree || {};
+    const baseActionNames = Object.keys(baseTree);
+    const headActionNames = Object.keys(headTree);
+
+    html += `<div class="side-by-side" style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <!-- LEFT BOX (BASE VERSION) -->
+      <div class="side-box" style="background:#111;border:1px solid #222;border-radius:8px;padding:12px">
+        <div class="side-header" style="font-size:12px;font-weight:600;color:#ef4444;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid #222;display:flex;align-items:center;gap:6px">
+          <span style="width:8px;height:8px;border-radius:50%;background:#ef4444;display:inline-block"></span>
+          BASE VERSION — ${baseActionNames.length} Action(s)
+        </div>
+        <div class="side-body">`;
+    if (baseActionNames.length === 0) {
+      html += `<div style="color:#555;font-size:12px;font-style:italic">No actions in base version</div>`;
+    } else {
+      baseActionNames.forEach(actName => {
+        const act = baseTree[actName];
+        const isRemoved = !headTree[actName];
+        const isModified = headTree[actName] && (headTree[actName].type !== act.type || JSON.stringify(headTree[actName].inputs) !== JSON.stringify(act.inputs));
+        const bg = isRemoved ? 'background:#3f1212;border-color:#ef444455;color:#fca5a5' : isModified ? 'background:#3b2312;border-color:#f59e0b55;color:#fde68a' : 'background:#161616;border-color:#262626;color:#d4d4d4';
+        const tag = isRemoved ? '❌ Removed' : isModified ? '✏️ Modified' : '';
+        html += `<div style="padding:8px 10px;margin-bottom:6px;border:1px solid;border-radius:6px;font-size:12px;${bg}">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="font-weight:500">${actName}</span>
+            ${tag ? `<span style="font-size:10px;font-weight:600">${tag}</span>` : ''}
+          </div>
+          <div style="font-size:11px;opacity:0.75;margin-top:2px">${friendlyActionType(act.type)}</div>
+        </div>`;
+      });
+    }
+    html += `</div></div>
+
+      <!-- RIGHT BOX (HEAD VERSION) -->
+      <div class="side-box" style="background:#111;border:1px solid #222;border-radius:8px;padding:12px">
+        <div class="side-header" style="font-size:12px;font-weight:600;color:#22c55e;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid #222;display:flex;align-items:center;gap:6px">
+          <span style="width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block"></span>
+          HEAD VERSION — ${headActionNames.length} Action(s)
+        </div>
+        <div class="side-body">`;
+    if (headActionNames.length === 0) {
+      html += `<div style="color:#555;font-size:12px;font-style:italic">No actions in head version</div>`;
+    } else {
+      headActionNames.forEach(actName => {
+        const act = headTree[actName];
+        const isAdded = !baseTree[actName];
+        const isModified = baseTree[actName] && (baseTree[actName].type !== act.type || JSON.stringify(baseTree[actName].inputs) !== JSON.stringify(act.inputs));
+        const bg = isAdded ? 'background:#14381e;border-color:#22c55e55;color:#86efac' : isModified ? 'background:#3b2312;border-color:#f59e0b55;color:#fde68a' : 'background:#161616;border-color:#262626;color:#d4d4d4';
+        const tag = isAdded ? '✅ Added' : isModified ? '✏️ Modified' : '';
+        html += `<div style="padding:8px 10px;margin-bottom:6px;border:1px solid;border-radius:6px;font-size:12px;${bg}">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="font-weight:500">${actName}</span>
+            ${tag ? `<span style="font-size:10px;font-weight:600">${tag}</span>` : ''}
+          </div>
+          <div style="font-size:11px;opacity:0.75;margin-top:2px">${friendlyActionType(act.type)}</div>
+        </div>`;
+      });
+    }
+    html += `</div></div></div>`;
+
+    html += `</div></div>`;
   });
 
   html += '</div>';
@@ -1423,6 +1492,46 @@ def diff_compare():
 def flows(pr_number):
     return jsonify(get_flows_data(pr_number))
 
+def _extract_flow_actions_dict(actions, parent=None, depth=0):
+    result = {}
+    for name, action in (actions or {}).items():
+        result[name] = {
+            "type": action.get("type", ""),
+            "parent": parent,
+            "depth": depth,
+            "inputs": action.get("inputs", {}),
+            "runAfter": action.get("runAfter", {})
+        }
+        if "actions" in action:
+            result.update(_extract_flow_actions_dict(action["actions"], name, depth + 1))
+        if "else" in action:
+            result.update(_extract_flow_actions_dict(action["else"].get("actions", {}), f"{name}:Else", depth + 1))
+    return result
+
+def _parse_flow_dict(flow_data, fallback_name=""):
+    props = flow_data.get("properties", {})
+    disp_name = props.get("displayName") or fallback_name
+    defn = props.get("definition", {})
+    triggers = defn.get("triggers", {})
+    trigger_type = list(triggers.keys())[0] if triggers else "Unknown"
+    trigger_freq = ""
+    if triggers and isinstance(triggers.get(trigger_type), dict):
+        rec = triggers[trigger_type].get("recurrence", {})
+        if rec:
+            trigger_freq = f"Every {rec.get('interval','')} {rec.get('frequency','')}"
+    actions = defn.get("actions", {})
+    actions_tree = _extract_flow_actions_dict(actions)
+    connections = list(props.get("connectionReferences", {}).keys())
+    return disp_name, {
+        "name": disp_name,
+        "trigger_type": trigger_type,
+        "trigger_freq": trigger_freq,
+        "action_count": len(actions_tree),
+        "actions_tree": actions_tree,
+        "connections": connections,
+        "raw_json": flow_data
+    }
+
 @app.route("/flows/compare", methods=["GET", "POST"])
 @login_required
 def flows_compare():
@@ -1449,14 +1558,9 @@ def flows_compare():
                 flows = {}
                 for r in rows:
                     try:
-                        flow_data = json.loads(r["raw_json"])
-                        flows[r["flow_name"]] = {
-                            "trigger_type": r["trigger_type"] or "Unknown",
-                            "trigger_freq": r["trigger_freq"] or "",
-                            "action_count": r["action_count"] or 0,
-                            "connections": json.loads(r["connections"] or "[]"),
-                            "raw_json": flow_data
-                        }
+                        flow_data = json.loads(r["raw_json"]) if r["raw_json"] else {}
+                        fname, parsed = _parse_flow_dict(flow_data, fallback_name=r["flow_name"])
+                        flows[fname] = parsed
                     except Exception:
                         pass
                 return flows
@@ -1481,29 +1585,13 @@ def flows_compare():
                     for fe in [f for f in zf.namelist() if "Workflows/" in f and f.endswith(".json")]:
                         try:
                             flow_data = json.loads(zf.read(fe).decode("utf-8-sig"))
-                            flow_name = re.sub(
+                            clean_fname = re.sub(
                                 r'-[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}$',
                                 '', fe.split("/")[-1].replace(".json", ""),
                                 flags=re.IGNORECASE
                             )
-                            # Extract trigger info
-                            trigger = flow_data.get("properties", {}).get("definition", {}).get("triggers", {})
-                            trigger_type = list(trigger.keys())[0] if trigger else "Unknown"
-                            trigger_freq = trigger.get(trigger_type, {}).get("recurrence", {}).get("frequency", "")
-                            
-                            # Extract actions
-                            actions = flow_data.get("properties", {}).get("definition", {}).get("actions", {})
-                            action_count = len(actions)
-                            
-                            # Extract connections
-                            connections = list(flow_data.get("properties", {}).get("connectionReferences", {}).keys())
-                            
-                            flows[flow_name] = {
-                                "trigger_type": trigger_type,
-                                "trigger_freq": trigger_freq,
-                                "action_count": action_count,
-                                "connections": connections
-                            }
+                            fname, parsed = _parse_flow_dict(flow_data, fallback_name=clean_fname)
+                            flows[fname] = parsed
                         except Exception:
                             pass
             except Exception:
@@ -1522,25 +1610,61 @@ def flows_compare():
         h = head_flows.get(name)
 
         if not b:
-            result.append({"name": name, "status": "added", "base": None, "head": h})
+            result.append({"name": name, "status": "added", "base": None, "head": h, "changes": []})
         elif not h:
-            result.append({"name": name, "status": "removed", "base": b, "head": None})
+            result.append({"name": name, "status": "removed", "base": b, "head": None, "changes": []})
         else:
-            # Check what changed
             changes = []
             if b["trigger_type"] != h["trigger_type"]:
                 changes.append({"field": "Trigger Type", "base": b["trigger_type"], "head": h["trigger_type"]})
             if b["trigger_freq"] != h["trigger_freq"]:
-                changes.append({"field": "Trigger Frequency", "base": b["trigger_freq"], "head": h["trigger_freq"]})
+                changes.append({"field": "Trigger Frequency", "base": b["trigger_freq"] or "—", "head": h["trigger_freq"] or "—"})
             if b["action_count"] != h["action_count"]:
                 diff = h["action_count"] - b["action_count"]
-                changes.append({"field": "Actions", "base": str(b["action_count"]), "head": f"{h['action_count']} ({'+' if diff>0 else ''}{diff})"})
+                changes.append({"field": "Total Action Count", "base": f"{b['action_count']} actions", "head": f"{h['action_count']} actions ({'+' if diff>0 else ''}{diff})"})
+            
             base_conns = set(b["connections"])
             head_conns = set(h["connections"])
             for c in head_conns - base_conns:
-                changes.append({"field": "Connection", "base": "—", "head": f"{c} ✅ Added"})
+                changes.append({"field": "Connection Added", "base": "—", "head": f"{c} ✅"})
             for c in base_conns - head_conns:
-                changes.append({"field": "Connection", "base": f"{c}", "head": "❌ Removed"})
+                changes.append({"field": "Connection Removed", "base": f"{c} ❌", "head": "—"})
+
+            # Deep Action Tree Comparison
+            b_actions = b.get("actions_tree", {})
+            h_actions = h.get("actions_tree", {})
+
+            for act_name in sorted(set(h_actions) - set(b_actions)):
+                h_act = h_actions[act_name]
+                changes.append({
+                    "field": f"Action Added: {act_name}",
+                    "base": "—",
+                    "head": f"Type: {h_act.get('type')}"
+                })
+
+            for act_name in sorted(set(b_actions) - set(h_actions)):
+                b_act = b_actions[act_name]
+                changes.append({
+                    "field": f"Action Removed: {act_name}",
+                    "base": f"Type: {b_act.get('type')}",
+                    "head": "—"
+                })
+
+            for act_name in sorted(set(b_actions) & set(h_actions)):
+                b_act = b_actions[act_name]
+                h_act = h_actions[act_name]
+                if b_act["type"] != h_act["type"]:
+                    changes.append({
+                        "field": f"Action Type Changed: {act_name}",
+                        "base": b_act["type"],
+                        "head": h_act["type"]
+                    })
+                elif b_act["inputs"] != h_act["inputs"]:
+                    changes.append({
+                        "field": f"Action Inputs Modified: {act_name}",
+                        "base": json.dumps(b_act["inputs"]),
+                        "head": json.dumps(h_act["inputs"])
+                    })
 
             status = "modified" if changes else "unchanged"
             result.append({"name": name, "status": status, "base": b, "head": h, "changes": changes})
