@@ -5,7 +5,7 @@ Arun's requirement: upload ONE file → auto version → auto diff vs previous
 """
 
 from azure.storage.blob import BlobServiceClient
-import os, re, io, json, zipfile, urllib.request, urllib.error
+import os, re, io, json, zipfile, urllib.request, urllib.error, hashlib
 from flask import Flask, request, jsonify, render_template_string
 from dotenv import load_dotenv
 
@@ -88,12 +88,12 @@ def _get_latest_two_versions(db):
     return [r["pr_number"] for r in rows]
 
 
-def _create_release(db, pr_number, branch_type, label=None):
+def _create_release(db, pr_number, branch_type, label=None, sha_short="manual"):
     name = label or f"v{pr_number}"
     cur  = db.execute("""
         INSERT INTO releases (release_name, pr_number, branch_type, sha_short)
         VALUES (?,?,?,?)
-    """, (name, pr_number, branch_type, "manual"))
+    """, (name, pr_number, branch_type, sha_short))
     db.commit()
     return cur.lastrowid
 
@@ -418,6 +418,28 @@ def process_upload(files, label=None):
     results_list = []
 
     for file in files:
+        filename = file.filename
+        data     = file.read()
+        file_hash = hashlib.sha256(data).hexdigest()[:16]
+
+        # Check if file has already been uploaded in a head release
+        existing_rel = db.execute(
+            "SELECT pr_number, release_name FROM releases WHERE sha_short=? AND branch_type='head' ORDER BY created_at DESC LIMIT 1",
+            (file_hash,)
+        ).fetchone()
+
+        if existing_rel:
+            results_list.append({
+                "msapp": filename,
+                "flows": [],
+                "errors": [f"File '{filename}' is identical to existing version v{existing_rel['pr_number']} ('{existing_rel['release_name']}'). Duplicate upload skipped."],
+                "version": existing_rel["pr_number"],
+                "duplicate": True,
+                "prev_version": None,
+                "diff_count": 0
+            })
+            continue
+
         new_version = _get_next_version(db)
         versions = _get_latest_two_versions(db)
 
@@ -430,19 +452,17 @@ def process_upload(files, label=None):
 
         current_label = label
         if not current_label:
-            current_label = file.filename.replace(".zip", "").replace(".msapp", "")
+            current_label = filename.replace(".zip", "").replace(".msapp", "")
         elif len(files) > 1:
-            current_label = f"{label} ({file.filename})"
+            current_label = f"{label} ({filename})"
 
         release_id = _create_release(
             db,
             new_version,
             "head",
-            current_label or f"v{new_version}"
+            current_label or f"v{new_version}",
+            sha_short=file_hash
         )
-
-        filename = file.filename
-        data     = file.read()
         try:
             if filename.endswith(".zip"):
                 with zipfile.ZipFile(io.BytesIO(data)) as zf:
