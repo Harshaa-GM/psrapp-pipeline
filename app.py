@@ -887,8 +887,8 @@ HTML = """<!DOCTYPE html>
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
-        <input type="checkbox" id="show-unchanged" onchange="toggleUnchanged()">
-        <label for="show-unchanged" style="font-size:12px;color:#666;cursor:pointer">Show unchanged flows</label>
+        <input type="checkbox" id="show-unchanged" checked onchange="toggleUnchanged()">
+        <label for="show-unchanged" style="font-size:12px;color:#aaa;cursor:pointer">Show unchanged flows</label>
       </div>
     </div>
     <div class="flows-content" id="flows-content" style="flex:1; overflow-y:auto">
@@ -1341,9 +1341,10 @@ function renderFlowCompare(data) {
       f.status === 'modified'  ? '<span class="flow-badge" style="background:#78350f33;color:#f59e0b;border:1px solid #f59e0b33">✏️ Modified</span>' :
       '<span class="flow-badge both">📋 No Changes</span>';
 
+    const showUnchanged = document.getElementById('show-unchanged')?.checked ?? true;
     const hasDetails = f.status === 'modified' || f.status === 'added' || f.status === 'removed';
     const unchangedClass = f.status === 'unchanged' ? 'flow-unchanged' : '';
-    const unchangedStyle = f.status === 'unchanged' ? 'display:none' : '';
+    const unchangedStyle = (f.status === 'unchanged' && !showUnchanged) ? 'display:none' : '';
 
     html += `<div class="flow-compare-card ${unchangedClass}" style="${unchangedStyle};margin-bottom:16px">
       <div class="flow-compare-header" onclick="${hasDetails ? `toggleFlowBody(${i})` : ''}" style="cursor:pointer;padding:12px 16px;background:#181818;border-radius:8px">
