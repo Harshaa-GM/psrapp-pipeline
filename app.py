@@ -200,19 +200,91 @@ def get_flows_data(pr_number):
 
 
 def build_context():
+
     db = get_db()
+
     lines = []
-    for r in db.execute("SELECT * FROM releases ORDER BY created_at").fetchall():
-        lines.append(f"Version v{r['pr_number']} | name: {r['release_name']} | branch: {r['branch_type']} | created: {r['created_at']}")
-    for a in db.execute("SELECT * FROM apps").fetchall():
-        lines.append(f"App '{a['app_name']}' | release_id={a['release_id']} | version={a['doc_version']} | last_saved={a['last_saved_utc']}")
-    for c in db.execute("SELECT DISTINCT control_name, control_type, screen_name FROM controls ORDER BY screen_name").fetchall():
-        lines.append(f"screen={c['screen_name']} | control='{c['control_name']}' | type={c['control_type']}")
-    for f in db.execute("SELECT flow_name, trigger_type, trigger_freq, action_count FROM flows").fetchall():
-        lines.append(f"flow='{f['flow_name']}' | trigger={f['trigger_type']} | freq={f['trigger_freq']} | actions={f['action_count']}")
-    for d in db.execute("SELECT * FROM diffs ORDER BY pr_number").fetchall():
-        lines.append(f"v{d['pr_number']} | {d['diff_type']} | entity='{d['entity_name']}' | base='{d['base_value']}' -> head='{d['head_value']}'")
+
+    # Latest versions
+    for r in db.execute("""
+        SELECT *
+        FROM releases
+        ORDER BY pr_number DESC
+        LIMIT 10
+    """).fetchall():
+
+        lines.append(
+            f"Version v{r['pr_number']} "
+            f"| {r['release_name']} "
+            f"| {r['branch_type']}"
+        )
+
+    # Apps
+    for a in db.execute("""
+        SELECT app_name, doc_version
+        FROM apps
+        ORDER BY id DESC
+        LIMIT 10
+    """).fetchall():
+
+        lines.append(
+            f"App: {a['app_name']} "
+            f"| Version: {a['doc_version']}"
+        )
+
+    # Recent controls
+    for c in db.execute("""
+        SELECT control_name,
+               control_type,
+               screen_name
+        FROM controls
+        ORDER BY id DESC
+        LIMIT 50
+    """).fetchall():
+
+        lines.append(
+            f"Screen={c['screen_name']} "
+            f"| Control={c['control_name']} "
+            f"| Type={c['control_type']}"
+        )
+
+    # Flows
+    for f in db.execute("""
+        SELECT flow_name,
+               trigger_type,
+               action_count
+        FROM flows
+        ORDER BY id DESC
+        LIMIT 20
+    """).fetchall():
+
+        lines.append(
+            f"Flow={f['flow_name']} "
+            f"| Trigger={f['trigger_type']} "
+            f"| Actions={f['action_count']}"
+        )
+
+    # Diffs
+    for d in db.execute("""
+        SELECT pr_number,
+               diff_type,
+               entity_name,
+               base_value,
+               head_value
+        FROM diffs
+        ORDER BY id DESC
+        LIMIT 50
+    """).fetchall():
+
+        lines.append(
+            f"v{d['pr_number']} "
+            f"| {d['diff_type']} "
+            f"| {d['entity_name']} "
+            f"| {d['base_value']} -> {d['head_value']}"
+        )
+
     db.close()
+
     return "\n".join(lines)
 
 
@@ -287,12 +359,26 @@ def ask_grok(question, context):
     if not grok_key:
         return answer_locally(question)
     payload = json.dumps({
-        "model": "grok-2-latest",
+        "model": "grok-4-fast-reasoning",
         "messages": [
             {"role": "system", "content": (
-                "You are a PowerApps code review assistant. "
-                "Answer ONLY using the database context provided. "
-                "Be precise, mention control names and screens."
+                """
+You are an expert PowerApps reviewer.
+
+Answer using ONLY the supplied database context.
+
+When applicable:
+- Mention screen names.
+- Mention control names.
+- Mention flow names.
+- Mention version numbers.
+- Mention diffs between releases.
+
+Keep responses concise and actionable.
+
+If the answer is not present in the context, say:
+'I could not find that information in the uploaded solution.'
+"""
             )},
             {"role": "user", "content": f"Database Context:\n{context}\n\nUser Question:\n{question}"}
         ],
@@ -305,10 +391,11 @@ def ask_grok(question, context):
         method="POST"
     )
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             return data["choices"][0]["message"]["content"]
-    except Exception:
+    except Exception as e:
+        print("Grok Error:", e)
         return answer_locally(question)
 
 
@@ -323,9 +410,22 @@ def process_upload(files, label=None):
       4. Auto-diff latest vs previous
     """
     db          = get_db()
+
+    db = get_db()
+
+all_results = []
+
+for file in files:
+
     new_version = _get_next_version(db)
-    versions    = _get_latest_two_versions(db)  # before this upload
-    results     = {"msapp": None, "flows": [], "errors": [], "version": new_version}
+    versions = _get_latest_two_versions(db)
+
+    results = {
+        "msapp": None,
+        "flows": [],
+        "errors": [],
+        "version": new_version
+    }
 
     # Store new upload as HEAD
     # Use uploaded filename as label if no label provided
@@ -365,7 +465,7 @@ def process_upload(files, label=None):
             results["errors"].append(f"{filename}: {str(e)}")
 
     diff_count   = 0
-    prev_version = versions[0] if versions else None
+    prev_version  = versions[0] if versions else None
 
     if prev_version:
         # Create a base release pointing to previous version's apps
@@ -417,8 +517,9 @@ def process_upload(files, label=None):
         results["prev_version"] = None
 
     results["diff_count"] = diff_count
+    all_results.append(results)
     db.close()
-    return results
+    return all_results
 
 
 # ── HTML ──────────────────────────────────────────────────────────────────────
