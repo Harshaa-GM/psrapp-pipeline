@@ -620,13 +620,13 @@ HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PSR PowerApp Review</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='white'/><path d='M12 46 C22 60 40 64 56 52 C72 40 85 42 90 56 C84 44 72 39 56 49 C38 60 22 50 12 46 Z' fill='%232563eb'/><path d='M46 14 C46 14 58 14 58 34 L58 46 L46 52 L46 34 C46 20 46 14 46 14 Z' fill='%232563eb'/><path d='M46 52 C54 47 58 46 58 46 L58 62 C58 78 70 84 88 81 C78 90 56 92 44 78 C41 74 46 60 46 52 Z' fill='%232563eb'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><rect width='200' height='200' rx='40' fill='white'/><path d='M 92 34 C 92 34 112 34 112 70 L 112 110 C 112 145 130 162 158 162 C 168 162 176 156 176 156 C 176 156 162 172 144 172 C 108 172 88 145 88 110 L 88 70 C 88 42 92 34 92 34 Z' fill='%233b66c4'/><path d='M 38 86 C 52 112 85 118 108 92 C 132 66 160 62 176 102 C 168 76 142 74 112 96 C 88 114 62 108 38 86 Z' fill='%233b66c4'/></svg>">
 
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f0f0f;color:#e8e8e8;height:100vh;display:flex;flex-direction:column}
   header{padding:14px 24px;border-bottom:1px solid #222;display:flex;align-items:center;gap:12px;background:#141414}
-  .logo{width:34px;height:34px;background:#ffffff;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:3px;box-shadow:0 2px 8px rgba(0,0,0,0.4)}
+  .logo{width:36px;height:36px;background:#ffffff;border-radius:10px;display:flex;align-items:center;justify-content:center;padding:3px;box-shadow:0 2px 8px rgba(0,0,0,0.5)}
   header h1{font-size:15px;font-weight:600;color:#fff}
   header span{font-size:11px;color:#555;margin-left:4px}
   .tabs{display:flex;border-bottom:1px solid #222;background:#141414;padding:0 24px}
@@ -763,10 +763,9 @@ HTML = """<!DOCTYPE html>
 
 <header>
   <div class="logo">
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="26" height="26" fill="none">
-      <path d="M12 46 C22 60 40 64 56 52 C72 40 85 42 90 56 C84 44 72 39 56 49 C38 60 22 50 12 46 Z" fill="#2563eb"/>
-      <path d="M46 14 C46 14 58 14 58 34 L58 46 L46 52 L46 34 C46 20 46 14 46 14 Z" fill="#2563eb"/>
-      <path d="M46 52 C54 47 58 46 58 46 L58 62 C58 78 70 84 88 81 C78 90 56 92 44 78 C41 74 46 60 46 52 Z" fill="#2563eb"/>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="30" height="30" fill="none">
+      <path d="M 92 34 C 92 34 112 34 112 70 L 112 110 C 112 145 130 162 158 162 C 168 162 176 156 176 156 C 176 156 162 172 144 172 C 108 172 88 145 88 110 L 88 70 C 88 42 92 34 92 34 Z" fill="#3b66c4"/>
+      <path d="M 38 86 C 52 112 85 118 108 92 C 132 66 160 62 176 102 C 168 76 142 74 112 96 C 88 114 62 108 38 86 Z" fill="#3b66c4"/>
     </svg>
   </div>
   <h1>PSR PowerApp Review <span>AI Query Layer</span></h1>
