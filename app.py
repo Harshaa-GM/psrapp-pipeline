@@ -409,30 +409,34 @@ def process_upload(files, label=None):
       3. Promote previous head to 'base'
       4. Auto-diff latest vs previous
     """
-    db          = get_db()
+    
 
     db = get_db()
 
-all_results = []
+    all_results = []
 
-for file in files:
+    for file in files:
 
-    new_version = _get_next_version(db)
-    versions = _get_latest_two_versions(db)
+        new_version = _get_next_version(db)
+        versions = _get_latest_two_versions(db)
 
-    results = {
-        "msapp": None,
-        "flows": [],
-        "errors": [],
-        "version": new_version
-    }
+        results = {
+          "msapp": None,
+          "flows": [],
+          "errors": [],
+          "version": new_version
+        }
 
     # Store new upload as HEAD
     # Use uploaded filename as label if no label provided
     if not label and files:
       label = files[0].filename.replace(".zip", "").replace(".msapp", "")
-      release_id = _create_release(db, new_version, "head", label or f"v{new_version}")
-
+      release_id = _create_release(
+          db,
+          new_version,
+          "head",
+          label or f"v{new_version}"
+      )
       for file in files:
         filename = file.filename
         data     = file.read()
@@ -516,8 +520,8 @@ for file in files:
     else:
         results["prev_version"] = None
 
-    results["diff_count"] = diff_count
-    all_results.append(results)
+        results["diff_count"] = diff_count
+        all_results.append(results)
     db.close()
     return all_results
 
