@@ -620,13 +620,13 @@ HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PSR PowerApp Review</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%237c3aed'/><stop offset='1' stop-color='%232563eb'/></linearGradient></defs><rect width='100' height='100' rx='20' fill='url(%23g)'/><text y='.9em' font-size='75' x='12'>⚡</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%232563eb'/><path d='M18 43 C24 55 38 61 54 51 C68 42 78 44 82 56 C77 47 67 43 54 52 C38 62 25 54 18 43 Z' fill='white'/><path d='M46 16 C46 16 56 16 56 34 L56 46 L46 51 L46 34 C46 22 46 16 46 16 Z' fill='white'/><path d='M46 51 C52 47 56 46 56 46 L56 62 C56 75 66 80 82 78 C73 85 55 86 46 74 C44 70 46 58 46 51 Z' fill='white'/></svg>">
 
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f0f0f;color:#e8e8e8;height:100vh;display:flex;flex-direction:column}
   header{padding:14px 24px;border-bottom:1px solid #222;display:flex;align-items:center;gap:12px;background:#141414}
-  .logo{width:30px;height:30px;background:linear-gradient(135deg,#7c3aed,#2563eb);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px}
+  .logo{width:32px;height:32px;background:#2563eb;border-radius:8px;display:flex;align-items:center;justify-content:center;padding:4px}
   header h1{font-size:15px;font-weight:600;color:#fff}
   header span{font-size:11px;color:#555;margin-left:4px}
   .tabs{display:flex;border-bottom:1px solid #222;background:#141414;padding:0 24px}
@@ -762,7 +762,13 @@ HTML = """<!DOCTYPE html>
 <body>
 
 <header>
-  <div class="logo">⚡</div>
+  <div class="logo">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="24" height="24" fill="none">
+      <path d="M18 43 C24 55 38 61 54 51 C68 42 78 44 82 56 C77 47 67 43 54 52 C38 62 25 54 18 43 Z" fill="white"/>
+      <path d="M46 16 C46 16 56 16 56 34 L56 46 L46 51 L46 34 C46 22 46 16 46 16 Z" fill="white"/>
+      <path d="M46 51 C52 47 56 46 56 46 L56 62 C56 75 66 80 82 78 C73 85 55 86 46 74 C44 70 46 58 46 51 Z" fill="white"/>
+    </svg>
+  </div>
   <h1>PSR PowerApp Review <span>AI Query Layer</span></h1>
 </header>
 
