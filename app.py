@@ -1532,6 +1532,12 @@ def _parse_flow_dict(flow_data, fallback_name=""):
         "raw_json": flow_data
     }
 
+def _normalize_flow_name(s):
+    if not s: return ""
+    s = re.sub(r'^(deprecated|dev|prod|v\d+)[_\-\s]*', '', s, flags=re.IGNORECASE)
+    s = re.sub(r'[_\-\s]+', '', s)
+    return s.lower()
+
 @app.route("/flows/compare", methods=["GET", "POST"])
 @login_required
 def flows_compare():
@@ -1600,12 +1606,6 @@ def flows_compare():
 
         base_flows = extract_flows(base_file)
         head_flows = extract_flows(head_file)
-
-def _normalize_flow_name(s):
-    if not s: return ""
-    s = re.sub(r'^(deprecated|dev|prod|v\d+)[_\-\s]*', '', s, flags=re.IGNORECASE)
-    s = re.sub(r'[_\-\s]+', '', s)
-    return s.lower()
 
     # Common comparison logic with normalized matching
     matched_pairs = []
@@ -1702,10 +1702,11 @@ def _normalize_flow_name(s):
         b = base_flows[b_name]
         result.append({"name": b_name, "status": "removed", "base": b, "head": None, "changes": []})
 
+    total_len = len(matched_pairs) + len(head_unmatched) + len(base_unmatched)
     return jsonify({
         "flows": result,
         "summary": {
-            "total": len(all_flows),
+            "total": total_len,
             "added": sum(1 for f in result if f["status"] == "added"),
             "removed": sum(1 for f in result if f["status"] == "removed"),
             "modified": sum(1 for f in result if f["status"] == "modified"),
