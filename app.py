@@ -1111,16 +1111,31 @@ async function loadVersionLists() {
 
 function jumpToDiff(i, pr, versions) {
   switchTab('diff');
-  document.getElementById('pr-select-head').value = pr;
   const prevPr = versions[i+1] ? versions[i+1].pr_number : '';
-  document.getElementById('pr-select-base').value = prevPr;
+  const baseSel = document.getElementById('pr-select-base');
+  const headSel = document.getElementById('pr-select-head');
+  const flowsBaseSel = document.getElementById('pr-select-flows-base');
+  const flowsHeadSel = document.getElementById('pr-select-flows-head');
+  
+  if (headSel) headSel.value = pr;
+  if (baseSel) baseSel.value = prevPr;
+  if (flowsHeadSel) flowsHeadSel.value = pr;
+  if (flowsBaseSel) flowsBaseSel.value = prevPr;
+  
   if (prevPr) loadDiff();
 }
 
-// ── Diff viewer ───────────────────────────────────────────────────────────────
+// ── Diff viewer & Flows Sync ───────────────────────────────────────────────────
 async function loadDiff() {
   const base = document.getElementById('pr-select-base').value;
   const head = document.getElementById('pr-select-head').value;
+  
+  // Sync to Flows tab selectors
+  const flowsBase = document.getElementById('pr-select-flows-base');
+  const flowsHead = document.getElementById('pr-select-flows-head');
+  if (flowsBase && flowsBase.value !== base) flowsBase.value = base;
+  if (flowsHead && flowsHead.value !== head) flowsHead.value = head;
+
   if (!base || !head) {
     document.getElementById('diff-content').innerHTML =
       '<div class="empty-diff"><p>Select both a Base and Head version to compare.</p></div>';
@@ -1133,9 +1148,17 @@ async function loadDiff() {
   }
   document.getElementById('diff-content').innerHTML =
     '<div class="empty-diff"><p style="color:#555">Loading...</p></div>';
-  const data = await fetch(`/diff/compare?base=${base}&head=${head}`).then(r=>r.json());
-  document.getElementById('diff-subtitle').innerText = `v${base} → v${head}`;
-  renderDiff(head, data);
+
+  // Simultaneously trigger Flows diff from DB
+  loadFlowsDiffFromDb(true);
+
+  try {
+    const data = await fetch(`/diff/compare?base=${base}&head=${head}`).then(r=>r.json());
+    document.getElementById('diff-subtitle').innerText = `v${base} → v${head}`;
+    renderDiff(head, data);
+  } catch(e) {
+    document.getElementById('diff-content').innerHTML = `<div class="empty-diff"><p style="color:#ef4444">Error loading diff: ${e}</p></div>`;
+  }
 }
 
 function renderDiff(pr, data) {
@@ -1211,9 +1234,22 @@ function handleFlowFile(side, input) {
   document.getElementById('compare-flows-btn').disabled = !(baseFlowFile && headFlowFile);
 }
 
-async function loadFlowsDiffFromDb() {
+async function loadFlowsDiffFromDb(skipDiffSync = false) {
   const base = document.getElementById('pr-select-flows-base').value;
   const head = document.getElementById('pr-select-flows-head').value;
+
+  // Sync to Diff Viewer selectors
+  if (!skipDiffSync) {
+    const diffBase = document.getElementById('pr-select-base');
+    const diffHead = document.getElementById('pr-select-head');
+    if (diffBase && diffBase.value !== base) diffBase.value = base;
+    if (diffHead && diffHead.value !== head) diffHead.value = head;
+    if (base && head && base !== head) {
+      loadDiff();
+      return;
+    }
+  }
+
   if (!base || !head) {
     document.getElementById('flows-content').innerHTML =
       '<div class="empty-diff"><p>Select both a Base and Head version to compare.</p></div>';
@@ -1231,7 +1267,8 @@ async function loadFlowsDiffFromDb() {
     const res = await fetch(`/flows/compare?base=${base}&head=${head}`);
     const data = await res.json();
     flowsData = data.flows;
-    document.getElementById('flows-db-subtitle').innerText = `v${base} → v${head}`;
+    const sub = document.getElementById('flows-db-subtitle');
+    if (sub) sub.innerText = `v${base} → v${head}`;
     renderFlowCompare(data);
   } catch(e) {
     document.getElementById('flows-content').innerHTML = `<div class="empty-diff"><p style="color:#ef4444">Error: ${e}</p></div>`;
