@@ -217,45 +217,50 @@ def _extract_flow_actions(actions, parent=None, depth=0):
     return result
 
 
-def _compare_flows(base_release_id, head_release_id, db, diffs):
+def _normalize_flow_name(s):
+    if not s: return ""
+    s = re.sub(r'^(deprecated|dev|prod|v\d+)[_\-\s]*', '', s, flags=re.IGNORECASE)
+    s = re.sub(r'[_\-\s]+', '', s)
+    return s.lower()
 
+def _compare_flows(base_release_id, head_release_id, db, diffs):
     base_flows = _get_flows(db, base_release_id)
     head_flows = _get_flows(db, head_release_id)
 
-    #
+    base_unmatched = dict(base_flows)
+    head_unmatched = dict(head_flows)
+    matched_pairs = []
+
+    for b_name in list(base_unmatched.keys()):
+        if b_name in head_unmatched:
+            matched_pairs.append((b_name, b_name))
+            del base_unmatched[b_name]
+            del head_unmatched[b_name]
+
+    base_norm_map = {_normalize_flow_name(b): b for b in base_unmatched.keys()}
+    head_norm_map = {_normalize_flow_name(h): h for h in head_unmatched.keys()}
+
+    for norm_name, b_name in list(base_norm_map.items()):
+        if norm_name and norm_name in head_norm_map:
+            h_name = head_norm_map[norm_name]
+            if b_name in base_unmatched and h_name in head_unmatched:
+                matched_pairs.append((b_name, h_name))
+                del base_unmatched[b_name]
+                del head_unmatched[h_name]
+
     # Added flows
-    #
+    for flow in head_unmatched.keys():
+        diffs.append(("flow_added", flow, "flow", None, flow))
 
-    for flow in set(head_flows) - set(base_flows):
-        diffs.append((
-            "flow_added",
-            flow,
-            "flow",
-            None,
-            flow
-        ))
-
-    #
     # Removed flows
-    #
+    for flow in base_unmatched.keys():
+        diffs.append(("flow_removed", flow, "flow", flow, None))
 
-    for flow in set(base_flows) - set(head_flows):
-        diffs.append((
-            "flow_removed",
-            flow,
-            "flow",
-            flow,
-            None
-        ))
-
-    #
-    # Compare existing flows
-    #
-
-    for flow in set(base_flows) & set(head_flows):
-
-        base_json = json.loads(base_flows[flow]["raw_json"])
-        head_json = json.loads(head_flows[flow]["raw_json"])
+    # Compare matched flows
+    for b_flow_name, h_flow_name in matched_pairs:
+        flow = h_flow_name
+        base_json = json.loads(base_flows[b_flow_name]["raw_json"]) if base_flows[b_flow_name]["raw_json"] else {}
+        head_json = json.loads(head_flows[h_flow_name]["raw_json"]) if head_flows[h_flow_name]["raw_json"] else {}
 
         base_def = base_json.get("properties", {}).get("definition", {})
         head_def = head_json.get("properties", {}).get("definition", {})

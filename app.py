@@ -1601,73 +1601,106 @@ def flows_compare():
         base_flows = extract_flows(base_file)
         head_flows = extract_flows(head_file)
 
-    # Common comparison logic
-    all_flows = set(list(base_flows.keys()) + list(head_flows.keys()))
+def _normalize_flow_name(s):
+    if not s: return ""
+    s = re.sub(r'^(deprecated|dev|prod|v\d+)[_\-\s]*', '', s, flags=re.IGNORECASE)
+    s = re.sub(r'[_\-\s]+', '', s)
+    return s.lower()
+
+    # Common comparison logic with normalized matching
+    matched_pairs = []
+    base_unmatched = dict(base_flows)
+    head_unmatched = dict(head_flows)
+
+    for b_name in list(base_unmatched.keys()):
+        if b_name in head_unmatched:
+            matched_pairs.append((b_name, b_name))
+            del base_unmatched[b_name]
+            del head_unmatched[b_name]
+
+    base_norm_map = {_normalize_flow_name(b): b for b in base_unmatched.keys()}
+    head_norm_map = {_normalize_flow_name(h): h for h in head_unmatched.keys()}
+
+    for norm_name, b_name in list(base_norm_map.items()):
+        if norm_name and norm_name in head_norm_map:
+            h_name = head_norm_map[norm_name]
+            if b_name in base_unmatched and h_name in head_unmatched:
+                matched_pairs.append((b_name, h_name))
+                del base_unmatched[b_name]
+                del head_unmatched[h_name]
+
     result = []
 
-    for name in sorted(all_flows):
-        b = base_flows.get(name)
-        h = head_flows.get(name)
+    # 1. Process Matched Flows (Modified or Unchanged)
+    for b_name, h_name in sorted(matched_pairs, key=lambda x: x[0]):
+        b = base_flows[b_name]
+        h = head_flows[h_name]
+        display_title = h_name if h_name == b_name else f"{h_name} (Base: {b_name})"
 
-        if not b:
-            result.append({"name": name, "status": "added", "base": None, "head": h, "changes": []})
-        elif not h:
-            result.append({"name": name, "status": "removed", "base": b, "head": None, "changes": []})
-        else:
-            changes = []
-            if b["trigger_type"] != h["trigger_type"]:
-                changes.append({"field": "Trigger Type", "base": b["trigger_type"], "head": h["trigger_type"]})
-            if b["trigger_freq"] != h["trigger_freq"]:
-                changes.append({"field": "Trigger Frequency", "base": b["trigger_freq"] or "—", "head": h["trigger_freq"] or "—"})
-            if b["action_count"] != h["action_count"]:
-                diff = h["action_count"] - b["action_count"]
-                changes.append({"field": "Total Action Count", "base": f"{b['action_count']} actions", "head": f"{h['action_count']} actions ({'+' if diff>0 else ''}{diff})"})
-            
-            base_conns = set(b["connections"])
-            head_conns = set(h["connections"])
-            for c in head_conns - base_conns:
-                changes.append({"field": "Connection Added", "base": "—", "head": f"{c} ✅"})
-            for c in base_conns - head_conns:
-                changes.append({"field": "Connection Removed", "base": f"{c} ❌", "head": "—"})
+        changes = []
+        if b["trigger_type"] != h["trigger_type"]:
+            changes.append({"field": "Trigger Type", "base": b["trigger_type"], "head": h["trigger_type"]})
+        if b["trigger_freq"] != h["trigger_freq"]:
+            changes.append({"field": "Trigger Frequency", "base": b["trigger_freq"] or "—", "head": h["trigger_freq"] or "—"})
+        if b["action_count"] != h["action_count"]:
+            diff = h["action_count"] - b["action_count"]
+            changes.append({"field": "Total Action Count", "base": f"{b['action_count']} actions", "head": f"{h['action_count']} actions ({'+' if diff>0 else ''}{diff})"})
+        
+        base_conns = set(b["connections"])
+        head_conns = set(h["connections"])
+        for c in head_conns - base_conns:
+            changes.append({"field": "Connection Added", "base": "—", "head": f"{c} ✅"})
+        for c in base_conns - head_conns:
+            changes.append({"field": "Connection Removed", "base": f"{c} ❌", "head": "—"})
 
-            # Deep Action Tree Comparison
-            b_actions = b.get("actions_tree", {})
-            h_actions = h.get("actions_tree", {})
+        # Deep Action Tree Comparison
+        b_actions = b.get("actions_tree", {})
+        h_actions = h.get("actions_tree", {})
 
-            for act_name in sorted(set(h_actions) - set(b_actions)):
-                h_act = h_actions[act_name]
+        for act_name in sorted(set(h_actions) - set(b_actions)):
+            h_act = h_actions[act_name]
+            changes.append({
+                "field": f"Action Added: {act_name}",
+                "base": "—",
+                "head": f"Type: {h_act.get('type')}"
+            })
+
+        for act_name in sorted(set(b_actions) - set(h_actions)):
+            b_act = b_actions[act_name]
+            changes.append({
+                "field": f"Action Removed: {act_name}",
+                "base": f"Type: {b_act.get('type')}",
+                "head": "—"
+            })
+
+        for act_name in sorted(set(b_actions) & set(h_actions)):
+            b_act = b_actions[act_name]
+            h_act = h_actions[act_name]
+            if b_act["type"] != h_act["type"]:
                 changes.append({
-                    "field": f"Action Added: {act_name}",
-                    "base": "—",
-                    "head": f"Type: {h_act.get('type')}"
+                    "field": f"Action Type Changed: {act_name}",
+                    "base": b_act["type"],
+                    "head": h_act["type"]
+                })
+            elif b_act["inputs"] != h_act["inputs"]:
+                changes.append({
+                    "field": f"Action Inputs Modified: {act_name}",
+                    "base": json.dumps(b_act["inputs"]),
+                    "head": json.dumps(h_act["inputs"])
                 })
 
-            for act_name in sorted(set(b_actions) - set(h_actions)):
-                b_act = b_actions[act_name]
-                changes.append({
-                    "field": f"Action Removed: {act_name}",
-                    "base": f"Type: {b_act.get('type')}",
-                    "head": "—"
-                })
+        status = "modified" if changes else "unchanged"
+        result.append({"name": display_title, "status": status, "base": b, "head": h, "changes": changes})
 
-            for act_name in sorted(set(b_actions) & set(h_actions)):
-                b_act = b_actions[act_name]
-                h_act = h_actions[act_name]
-                if b_act["type"] != h_act["type"]:
-                    changes.append({
-                        "field": f"Action Type Changed: {act_name}",
-                        "base": b_act["type"],
-                        "head": h_act["type"]
-                    })
-                elif b_act["inputs"] != h_act["inputs"]:
-                    changes.append({
-                        "field": f"Action Inputs Modified: {act_name}",
-                        "base": json.dumps(b_act["inputs"]),
-                        "head": json.dumps(h_act["inputs"])
-                    })
+    # 2. Process Truly Added Flows (Head Only)
+    for h_name in sorted(head_unmatched.keys()):
+        h = head_flows[h_name]
+        result.append({"name": h_name, "status": "added", "base": None, "head": h, "changes": []})
 
-            status = "modified" if changes else "unchanged"
-            result.append({"name": name, "status": status, "base": b, "head": h, "changes": changes})
+    # 3. Process Truly Removed Flows (Base Only)
+    for b_name in sorted(base_unmatched.keys()):
+        b = base_flows[b_name]
+        result.append({"name": b_name, "status": "removed", "base": b, "head": None, "changes": []})
 
     return jsonify({
         "flows": result,
