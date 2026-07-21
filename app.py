@@ -1346,12 +1346,12 @@ function renderFlowCompare(data) {
         </div>
         <div class="side-body">`;
     if (baseActionNames.length === 0) {
-      html += `<div style="color:#555;font-size:12px;font-style:italic">No actions in base version</div>`;
+      html += `<div style="color:#3b82f6;font-size:12px;font-weight:500;padding:12px;background:#142238;border-radius:6px">✨ New Flow (Does not exist in Base Version)</div>`;
     } else {
       baseActionNames.forEach(actName => {
         const act = baseTree[actName];
-        const isRemoved = !headTree[actName];
-        const isModified = headTree[actName] && (headTree[actName].type !== act.type || JSON.stringify(headTree[actName].inputs) !== JSON.stringify(act.inputs));
+        const isRemoved = f.status === 'modified' && !headTree[actName];
+        const isModified = f.status === 'modified' && headTree[actName] && (headTree[actName].type !== act.type || JSON.stringify(headTree[actName].inputs) !== JSON.stringify(act.inputs));
         const bg = isRemoved ? 'background:#3f1212;border-color:#ef444455;color:#fca5a5' : isModified ? 'background:#3b2312;border-color:#f59e0b55;color:#fde68a' : 'background:#161616;border-color:#262626;color:#d4d4d4';
         const tag = isRemoved ? '❌ Removed' : isModified ? '✏️ Modified' : '';
         html += `<div style="padding:8px 10px;margin-bottom:6px;border:1px solid;border-radius:6px;font-size:12px;${bg}">
@@ -1373,12 +1373,12 @@ function renderFlowCompare(data) {
         </div>
         <div class="side-body">`;
     if (headActionNames.length === 0) {
-      html += `<div style="color:#555;font-size:12px;font-style:italic">No actions in head version</div>`;
+      html += `<div style="color:#ef4444;font-size:12px;font-weight:500;padding:12px;background:#381414;border-radius:6px">🗑️ Entire Flow Deleted in Head Version</div>`;
     } else {
       headActionNames.forEach(actName => {
         const act = headTree[actName];
-        const isAdded = !baseTree[actName];
-        const isModified = baseTree[actName] && (baseTree[actName].type !== act.type || JSON.stringify(baseTree[actName].inputs) !== JSON.stringify(act.inputs));
+        const isAdded = f.status === 'modified' && !baseTree[actName];
+        const isModified = f.status === 'modified' && baseTree[actName] && (baseTree[actName].type !== act.type || JSON.stringify(baseTree[actName].inputs) !== JSON.stringify(act.inputs));
         const bg = isAdded ? 'background:#14381e;border-color:#22c55e55;color:#86efac' : isModified ? 'background:#3b2312;border-color:#f59e0b55;color:#fde68a' : 'background:#161616;border-color:#262626;color:#d4d4d4';
         const tag = isAdded ? '✅ Added' : isModified ? '✏️ Modified' : '';
         html += `<div style="padding:8px 10px;margin-bottom:6px;border:1px solid;border-radius:6px;font-size:12px;${bg}">
